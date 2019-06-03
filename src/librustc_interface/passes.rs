@@ -1021,10 +1021,15 @@ pub fn start_codegen<'tcx>(
         ::rustc::middle::dependency_format::calculate(tcx)
     });
 
-    tcx.sess.profiler(|p| p.start_activity(ProfileCategory::Codegen));
-    let (codegen, def_ids) = time(tcx.sess, "codegen", move ||
-                                  codegen_backend.codegen_crate(tcx, rx));
-    tcx.sess.profiler(|p| p.end_activity(ProfileCategory::Codegen));
+    let (metadata, need_metadata_module) = time(tcx.sess, "metadata encoding and writing", || {
+        encode_and_write_metadata(tcx, outputs)
+    });
+
+    tcx.sess.profiler(|p| p.start_activity("codegen crate"));
+    let (codegen, def_ids) = time(tcx.sess, "codegen", move || {
+        codegen_backend.codegen_crate(tcx, metadata, need_metadata_module, rx)
+    });
+    tcx.sess.profiler(|p| p.end_activity("codegen crate"));
 
     if log_enabled!(::log::Level::Info) {
         println!("Post-codegen");

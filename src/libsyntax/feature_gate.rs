@@ -828,34 +828,58 @@ pub fn is_builtin_attr(attr: &ast::Attribute) -> bool {
 pub const BUILTIN_ATTRIBUTES: &[(&str, AttributeType, AttributeTemplate, AttributeGate)] = &[
     // Normal attributes
 
-    ("warn", Normal, template!(List: r#"lint1, lint2, ..., /*opt*/ reason = "...""#), Ungated),
-    ("allow", Normal, template!(List: r#"lint1, lint2, ..., /*opt*/ reason = "...""#), Ungated),
-    ("forbid", Normal, template!(List: r#"lint1, lint2, ..., /*opt*/ reason = "...""#), Ungated),
-    ("deny", Normal, template!(List: r#"lint1, lint2, ..., /*opt*/ reason = "...""#), Ungated),
+    (
+        sym::warn,
+        Normal,
+        template!(List: r#"lint1, lint2, ..., /*opt*/ reason = "...""#),
+        Ungated
+    ),
+    (
+        sym::allow,
+        Normal,
+        template!(List: r#"lint1, lint2, ..., /*opt*/ reason = "...""#),
+        Ungated
+    ),
+    (
+        sym::forbid,
+        Normal,
+        template!(List: r#"lint1, lint2, ..., /*opt*/ reason = "...""#),
+        Ungated
+    ),
+    (
+        sym::deny,
+        Normal,
+        template!(List: r#"lint1, lint2, ..., /*opt*/ reason = "...""#),
+        Ungated
+    ),
 
-    ("macro_use", Normal, template!(Word, List: "name1, name2, ..."), Ungated),
-    ("macro_export", Normal, template!(Word, List: "local_inner_macros"), Ungated),
-    ("plugin_registrar", Normal, template!(Word), Ungated),
+    (sym::macro_use, Normal, template!(Word, List: "name1, name2, ..."), Ungated),
+    (sym::macro_export, Normal, template!(Word, List: "local_inner_macros"), Ungated),
+    (sym::plugin_registrar, Normal, template!(Word), Ungated),
 
-    ("cfg", Normal, template!(List: "predicate"), Ungated),
-    ("cfg_attr", Normal, template!(List: "predicate, attr1, attr2, ..."), Ungated),
-    ("main", Normal, template!(Word), Ungated),
-    ("start", Normal, template!(Word), Ungated),
-    ("repr", Normal, template!(List: "C, packed, ..."), Ungated),
-    ("path", Normal, template!(NameValueStr: "file"), Ungated),
-    ("automatically_derived", Normal, template!(Word), Ungated),
-    ("no_mangle", Normal, template!(Word), Ungated),
+    (sym::cfg, Normal, template!(List: "predicate"), Ungated),
+    (sym::cfg_attr, Normal, template!(List: "predicate, attr1, attr2, ..."), Ungated),
+    (sym::main, Normal, template!(Word), Ungated),
+    (sym::start, Normal, template!(Word), Ungated),
+    (sym::repr, Normal, template!(List: "C, packed, ..."), Ungated),
+    (sym::path, Normal, template!(NameValueStr: "file"), Ungated),
+    (sym::automatically_derived, Normal, template!(Word), Ungated),
+    (sym::no_mangle, Whitelisted, template!(Word), Ungated),
     // Don't trace this. Disables the `AddYkSWTCalls` MIR transform.
-    ("no_trace", Whitelisted, template!(Word), Ungated),
-    ("no_link", Normal, template!(Word), Ungated),
-    ("derive", Normal, template!(List: "Trait1, Trait2, ..."), Ungated),
-    ("should_panic", Normal, template!(Word, List: r#"expected = "reason"#, NameValueStr: "reason"),
-                                Ungated),
-    ("ignore", Normal, template!(Word, NameValueStr: "reason"), Ungated),
-    ("no_implicit_prelude", Normal, template!(Word), Ungated),
-    ("reexport_test_harness_main", Normal, template!(NameValueStr: "name"), Ungated),
-    ("link_args", Normal, template!(NameValueStr: "args"), Gated(Stability::Unstable,
-                                "link_args",
+    (sym::no_trace, Whitelisted, template!(Word), Ungated),
+    (sym::no_link, Normal, template!(Word), Ungated),
+    (sym::derive, Normal, template!(List: "Trait1, Trait2, ..."), Ungated),
+    (
+        sym::should_panic,
+        Normal,
+        template!(Word, List: r#"expected = "reason"#, NameValueStr: "reason"),
+        Ungated
+    ),
+    (sym::ignore, Normal, template!(Word, NameValueStr: "reason"), Ungated),
+    (sym::no_implicit_prelude, Normal, template!(Word), Ungated),
+    (sym::reexport_test_harness_main, Normal, template!(NameValueStr: "name"), Ungated),
+    (sym::link_args, Normal, template!(NameValueStr: "args"), Gated(Stability::Unstable,
+                                sym::link_args,
                                 "the `link_args` attribute is experimental and not \
                                  portable across platforms, it is recommended to \
                                  use `#[link(name = \"foo\")] instead",

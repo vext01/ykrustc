@@ -26,6 +26,7 @@ pub enum Mode {
     Ui,
     MirOpt,
     YkTir,
+    Assembly,
 }
 
 impl Mode {
@@ -62,6 +63,7 @@ impl FromStr for Mode {
             "ui" => Ok(Ui),
             "mir-opt" => Ok(MirOpt),
             "yk-tir" => Ok(YkTir),
+            "assembly" => Ok(Assembly),
             _ => Err(()),
         }
     }
@@ -86,6 +88,7 @@ impl fmt::Display for Mode {
             Ui => "ui",
             MirOpt => "mir-opt",
             YkTir => "yk-tir",
+            Assembly => "assembly",
         };
         fmt::Display::fmt(s, f)
     }

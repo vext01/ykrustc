@@ -67,8 +67,6 @@ use rustc::session::Session;
 use rustc::session::config::{OutputFilenames, OutputType, PrintRequest, OptLevel};
 use rustc::ty::{self, TyCtxt};
 use rustc::util::nodemap::DefIdSet;
-use rustc::util::time_graph;
-use rustc::util::profiling::ProfileCategory;
 use rustc::util::common::ErrorReported;
 use rustc_mir::monomorphize;
 use rustc_codegen_ssa::ModuleCodegen;
@@ -304,8 +302,8 @@ impl CodegenBackend for LlvmCodegenBackend {
         tcx: TyCtxt<'b, 'tcx, 'tcx>,
         rx: mpsc::Receiver<Box<dyn Any + Send>>
     ) -> (Box<dyn Any>, Arc<DefIdSet>) {
-        let (codegen, def_ids) =
-            rustc_codegen_ssa::base::codegen_crate(LlvmCodegenBackend(()), tcx, rx);
+        let (codegen, def_ids) = rustc_codegen_ssa::base::codegen_crate(
+            LlvmCodegenBackend(()), tcx, metadata, need_metadata_module, rx);
         (box codegen, def_ids)
     }
 

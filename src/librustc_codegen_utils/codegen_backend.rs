@@ -10,14 +10,7 @@
 #![feature(box_syntax)]
 
 use std::any::Any;
-use std::io::Write;
-use std::fs;
-use std::path::Path;
 use std::sync::{mpsc, Arc};
-
-use rustc_data_structures::owning_ref::OwningRef;
-use flate2::Compression;
-use flate2::write::DeflateEncoder;
 
 use syntax::symbol::Symbol;
 use rustc::hir::def_id::LOCAL_CRATE;
@@ -29,10 +22,7 @@ use rustc::ty::query::Providers;
 use rustc::middle::cstore::EncodedMetadata;
 use rustc::middle::cstore::MetadataLoader;
 use rustc::dep_graph::DepGraph;
-use rustc_target::spec::Target;
 use rustc::util::nodemap::DefIdSet;
-use rustc_mir::monomorphize::collector;
-use crate::link::out_filename;
 
 pub use rustc_data_structures::sync::MetadataRef;
 

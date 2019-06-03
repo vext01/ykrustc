@@ -4,7 +4,7 @@ use crate::common::{output_base_dir, output_base_name, output_testname_unique};
 use crate::common::{Codegen, CodegenUnits, DebugInfoBoth, DebugInfoGdb, DebugInfoLldb, Rustdoc};
 use crate::common::{CompileFail, Pretty, RunFail, RunPass, RunPassValgrind};
 use crate::common::{Config, TestPaths};
-use crate::common::{Incremental, MirOpt, RunMake, Ui, YkTir};
+use crate::common::{Incremental, MirOpt, RunMake, Ui, JsDocTest, Assembly, YkTir};
 use diff;
 use crate::errors::{self, Error, ErrorKind};
 use filetime::FileTime;
@@ -276,6 +276,8 @@ impl<'test> TestCx<'test> {
             RunPass | Ui => self.run_ui_test(),
             MirOpt => self.run_mir_opt_test(),
             YkTir => self.run_yk_tir_test(),
+            Assembly => self.run_assembly_test(),
+            JsDocTest => self.run_js_doc_test(),
         }
     }
 
@@ -1809,8 +1811,8 @@ impl<'test> TestCx<'test> {
                 let _ = fs::remove_dir_all(&mir_dump_dir);
                 create_dir_all(mir_dump_dir.as_path()).unwrap();
             },
-            RunFail | RunPassValgrind | Pretty | DebugInfoBoth | DebugInfoGdb | DebugInfoLldb
-            | Codegen | Rustdoc | RunMake | CodegenUnits => {
+            RunFail | RunPassValgrind | Pretty | DebugInfoCdb | DebugInfoGdbLldb | DebugInfoGdb
+            | DebugInfoLldb | Codegen | Rustdoc | RunMake | CodegenUnits | JsDocTest | Assembly => {
                 // do not use JSON output
             }
         }
