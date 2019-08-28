@@ -163,44 +163,39 @@ impl<'i, 'a, 'tcx, 'gcx> ConvCx<'i, 'a, 'tcx, 'tcx> {
                 }),
             TerminatorKind::Call{ref func, ref destination, .. } => {
                 let ser_oper = if let Operand::Constant(box Constant { literal: Const { ty: const_ty, .. }, ..}) = func {
-                    match const_ty.sty {
-                        // A statically known call target.
-                        TyKind::FnDef(ref _target_def_id, ref _substs, ..) => {
-                            let mono_ty = self.tcx.subst_and_normalize_erasing_regions(
-                                  self.instance.substs,
-                                  ParamEnv::reveal_all(), // param_env only used in type checking (already done).
-                                  const_ty,
-                            );
+                    let mono_ty = self.tcx.subst_and_normalize_erasing_regions(
+                        self.instance.substs,
+                        ParamEnv::reveal_all(), // param_env only used in type checking (already done).
+                        const_ty,
+                    );
 
-                            if let TyKind::FnDef(ref mono_def_id, ref mono_substs) = mono_ty.sty {
-                                let mono_inst = Instance::new(*mono_def_id, mono_substs);
-                                dbg!("WALKER FINDS:", mono_inst, self.tcx.def_path_str(mono_inst.def_id()));
-                                self.callee_instances.insert(Instance::new(*mono_def_id, mono_substs));
-                                // XXX put back symbol name.
-                                ykpack::CallOperand::Fn(self.lower_def_id(&mono_def_id), None)
-                            } else {
-                                panic!("game over");
-                            }
-                        },
-                        // A dynamic call target (e.g. via a trait object).
-                        TyKind::Dynamic(ref binder, ..) => {
-                            dbg!(binder);
-                            if let Some(pcpl) = binder.principal() {
-                                let pcpl_def_id = pcpl.def_id();
-                                let _trait_def = self.tcx.trait_def(pcpl_def_id);
+                    if let TyKind::FnDef(ref mono_def_id, ref mono_substs) = mono_ty.sty {
+                        let mono_inst = Instance::resolve(*self.tcx,
+                                             ParamEnv::reveal_all(),
+                                             *mono_def_id,
+                                             mono_substs).expect("boom");
 
-                                //let mono_ty = self.tcx.subst_and_normalize_erasing_regions(
-                                //      self.instance.substs,
-                                //      ParamEnv::reveal_all(), // param_env only used in type checking (already done).
-                                //      const_ty,
-                                //);
+                        if format!("{:?}", func).contains("stop_tracing") {
+                            dbg!("MONOMORPHIZE");
+                            dbg!(self.instance.substs);
+                            dbg!(func);
+                            dbg!(&mono_ty.sty);
+                            dbg!(&mono_substs);
+                            dbg!(&mono_inst);
+                            if !self.tcx.is_mir_available(*mono_def_id) {
+                                dbg!("^problem type (no mir)");
                             }
-                            ykpack::CallOperand::Unknown // FIXME -- decide how to serialise.
-                        },
-                        _ => ykpack::CallOperand::Unknown,
-                   }
-                } else {
-                    // FIXME -- implement other callables.
+                        }
+
+                        let mono_inst = Instance::new(*mono_def_id, mono_substs);
+                        self.callee_instances.insert(mono_inst);
+                        ykpack::CallOperand::Fn(self.lower_def_id(&mono_inst.def_id()), None)
+                    } else {
+                        panic!("game over");
+                    }
+                } else {;
+                    dbg!("UNHANDLED CALL");
+                    dbg!(func);
                     ykpack::CallOperand::Unknown
                 };
 
@@ -461,7 +456,7 @@ fn do_generate_sir<'a, 'tcx>(
         if let Some(ref mut e) = enc {
             if !seen.contains(&def_id) {
             e.serialise(ykpack::Pack::Debug(ykpack::SirDebug::new(
-                lower_def_id(tcx, &def_id), tcx.def_path_str(def_id), tcx.is_mir_available(def_id))))?;
+                lower_def_id(tcx, &def_id), tcx.def_path_str(def_id))))?;
             }
         }
 

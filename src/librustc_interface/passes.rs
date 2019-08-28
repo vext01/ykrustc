@@ -1102,33 +1102,13 @@ pub fn start_codegen<'tcx>(
         }
     }
 
-    // XXX Just prints the problem location's def string manually.
-    // It is: "<yktrace::swt::SWTThreadTracer as yktrace::ThreadTracerImpl>::stop_tracing
-    for c in tcx.crates().iter() {
-        if tcx.crate_hash(*c).as_u64() == 16756429939732915145 {
-            let xd = DefId{krate: *c, index: DefIndex::from_u32(66)};
-            dbg!("PROBLEM LOC");
-            dbg!(tcx.def_path_str(xd));
-        }
-    }
-
-    //dbg!("--->");
-    //for i in tcx.sess.yk_promoted_def_ids.borrow().iter() {
-    //    dbg!(tcx.crate_hash(i.krate), i.index);
-    //    dbg!(tcx.def_path_str(*i));
-    //}
-    //dbg!("<---");
-
-    dbg!("POLY INSTANCES:");
-    dbg!(tcx.yk_poly_instances.borrow().len());
-
     // Output Yorick debug sections into binary targets.
     if tcx.sess.crate_types.borrow().contains(&config::CrateType::Executable) {
         let mono_def_ids = tcx.collect_and_partition_mono_items(LOCAL_CRATE).0;
-        //let insts: Vec<Instance<'tcx>> = mono_def_ids.iter().map(|d| Instance::mono(tcx, *d)).chain(tcx.yk_poly_instances.borrow_mut().drain()).collect();
         let insts: FxHashSet<Instance<'tcx>> = mono_def_ids.iter().filter(|d| {
             !tcx.generics_of(**d).requires_monomorphization(tcx)
             }).map(|d| Instance::mono(tcx, *d)).chain(tcx.yk_poly_instances.borrow_mut().drain()).collect();
+
         let sir_mode = if tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
             // The user passed "--emit yk-sir" so we will output textual SIR and stop.
             SirMode::TextDump(outputs.path(OutputType::YkSir))
