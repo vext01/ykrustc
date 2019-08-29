@@ -33,6 +33,7 @@ use rustc_incremental::DepGraphFuture;
 use rustc_metadata::creader::CrateLoader;
 use rustc_metadata::cstore::{self, CStore};
 use rustc_mir as mir;
+use rustc::mir::mono::MonoItem;
 use rustc_passes::{self, ast_validation, hir_stats, loops, rvalue_promotion, layout_test};
 use rustc_plugin as plugin;
 use rustc_plugin::registry::Registry;
@@ -1104,10 +1105,19 @@ pub fn start_codegen<'tcx>(
 
     // Output Yorick debug sections into binary targets.
     if tcx.sess.crate_types.borrow().contains(&config::CrateType::Executable) {
-        let mono_def_ids = tcx.collect_and_partition_mono_items(LOCAL_CRATE).0;
-        let insts: FxHashSet<Instance<'tcx>> = mono_def_ids.iter().filter(|d| {
-            !tcx.generics_of(**d).requires_monomorphization(tcx)
-            }).map(|d| Instance::mono(tcx, *d)).chain(tcx.yk_poly_instances.borrow_mut().drain()).collect();
+        // Find the "root instances" from which we start our traversal of the MIR.
+        let cgs = tcx.collect_and_partition_mono_items(LOCAL_CRATE).1;
+        let mut insts: FxHashSet<Instance<'tcx>> = FxHashSet::default();
+        for cg in cgs.iter() {
+            let cg_insts: Vec<Instance<'_>> = cg.items().keys().map(|item| {
+                match item {
+                    MonoItem::Fn(inst) => Some(inst.clone()),
+                    MonoItem::Static(def_id) => Some(Instance::mono(tcx, *def_id)),
+                    MonoItem::GlobalAsm(_) => None,
+                }
+            }).filter(|o| o.is_some()).map(|o| o.unwrap()).collect();
+            insts.extend(cg_insts);
+        }
 
         let sir_mode = if tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
             // The user passed "--emit yk-sir" so we will output textual SIR and stop.

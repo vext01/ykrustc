@@ -171,31 +171,27 @@ impl<'i, 'a, 'tcx, 'gcx> ConvCx<'i, 'a, 'tcx, 'tcx> {
 
                     if let TyKind::FnDef(ref mono_def_id, ref mono_substs) = mono_ty.sty {
                         let mono_inst = Instance::resolve(*self.tcx,
-                                             ParamEnv::reveal_all(),
-                                             *mono_def_id,
-                                             mono_substs).expect("boom");
+                            ParamEnv::reveal_all(),
+                            *mono_def_id,
+                            mono_substs).unwrap();
 
                         if format!("{:?}", func).contains("stop_tracing") {
-                            dbg!("MONOMORPHIZE");
-                            dbg!(self.instance.substs);
+                            dbg!("---------------");
+                            dbg!(self.instance);
                             dbg!(func);
-                            dbg!(&mono_ty.sty);
-                            dbg!(&mono_substs);
-                            dbg!(&mono_inst);
-                            if !self.tcx.is_mir_available(*mono_def_id) {
-                                dbg!("^problem type (no mir)");
-                            }
+                            dbg!(mono_inst);
                         }
 
-                        let mono_inst = Instance::new(*mono_def_id, mono_substs);
+                        if !self.tcx.is_mir_available(*mono_def_id) {
+                            dbg!("No MIR for", mono_def_id, self.tcx.def_path_str(*mono_def_id));
+                        }
+
                         self.callee_instances.insert(mono_inst);
                         ykpack::CallOperand::Fn(self.lower_def_id(&mono_inst.def_id()), None)
                     } else {
                         panic!("game over");
                     }
-                } else {;
-                    dbg!("UNHANDLED CALL");
-                    dbg!(func);
+                } else {
                     ykpack::CallOperand::Unknown
                 };
 
