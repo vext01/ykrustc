@@ -176,7 +176,7 @@ impl<'a, 'tcx, 'gcx> ConvCx<'a, 'tcx, 'gcx> {
                         true => None,
                         false => Some(self.tcx.symbol_name(inst).as_str().get().to_owned()),
                     };
-                    self.callee_def_ids.insert(*target_def_id);
+                    //self.callee_def_ids.insert(*target_def_id);
                     ykpack::CallOperand::Fn(self.lower_def_id(target_def_id), sym_name)
                 } else {
                     // FIXME -- implement other callables.

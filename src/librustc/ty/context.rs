@@ -58,6 +58,7 @@ use rustc_data_structures::indexed_vec::{Idx, IndexVec};
 use rustc_data_structures::sync::{Lrc, Lock, WorkerLocal};
 use std::any::Any;
 use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::hash_map::{self, Entry};
 use std::hash::{Hash, Hasher};
@@ -1116,6 +1117,9 @@ pub struct GlobalCtxt<'tcx> {
     /// the query it'll send data along this channel to get processed later.
     pub tx_to_llvm_workers: Lock<mpsc::Sender<Box<dyn Any + Send>>>,
 
+    /// FIXME
+    pub yk_md_mir_defids: RefCell<DefIdSet>,
+
     output_filenames: Arc<OutputFilenames>,
 }
 
@@ -1334,6 +1338,7 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
             allocation_interner: Default::default(),
             alloc_map: Lock::new(interpret::AllocMap::new()),
             tx_to_llvm_workers: Lock::new(tx),
+            yk_md_mir_defids: RefCell::new(DefIdSet::default()),
             output_filenames: Arc::new(output_filenames.clone()),
         }
     }

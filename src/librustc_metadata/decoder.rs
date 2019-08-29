@@ -254,10 +254,22 @@ impl<'a, 'tcx> SpecializedDecoder<DefId> for DecodeContext<'a, 'tcx> {
         let krate = CrateNum::decode(self)?;
         let index = DefIndex::decode(self)?;
 
-        Ok(DefId {
+        let def_id = DefId {
             krate,
             index,
-        })
+        };
+
+        // If this DefId has MIR, we will serialise it to SIR.
+        match self.tcx {
+            Some(tcx) => {
+                if tcx.is_mir_available(def_id.clone()) {
+                    tcx.yk_md_mir_defids.borrow_mut().insert(def_id.clone());
+                }
+            },
+            None => (),
+        }
+
+        Ok(def_id)
     }
 }
 

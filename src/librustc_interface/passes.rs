@@ -2,6 +2,7 @@ use crate::interface::{Compiler, Result};
 use crate::util;
 use crate::proc_macro_decls;
 
+use rustc::mir::mono::MonoItem;
 use log::{debug, info, warn, log_enabled};
 use rustc::dep_graph::DepGraph;
 use rustc::hir;
@@ -1102,7 +1103,20 @@ pub fn start_codegen<'tcx>(
 
     // Output Yorick debug sections into binary targets.
     if tcx.sess.crate_types.borrow().contains(&config::CrateType::Executable) {
-        let (def_ids, _) = tcx.collect_and_partition_mono_items(LOCAL_CRATE);
+        let (def_ids, cgs) = tcx.collect_and_partition_mono_items(LOCAL_CRATE);
+        let mut def_ids: DefIdSet = def_ids.iter().cloned()
+            .chain(tcx.yk_md_mir_defids.borrow_mut().drain()).collect();
+
+        for cg in cgs.iter() {
+            let cg_defids: DefIdSet = cg.items().keys().map(|item| {
+                match item {
+                    MonoItem::Fn(inst) => Some(inst.def_id()),
+                    MonoItem::Static(def_id) => Some(def_id.clone()),
+                    MonoItem::GlobalAsm(_) => None,
+                }
+            }).filter(|o| o.is_some()).map(|o| o.unwrap()).collect();
+            def_ids.extend(cg_defids);
+        }
         let sir_mode = if tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
             // The user passed "--emit yk-sir" so we will output textual SIR and stop.
             SirMode::TextDump(outputs.path(OutputType::YkSir))
