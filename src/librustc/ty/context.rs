@@ -1468,6 +1468,7 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
         self.cstore.crate_data_as_rc_any(cnum)
     }
 
+    #[cfg(not(bootstrap))]
     pub fn codegenned_defids(&self, cnum: CrateNum) -> DefIdSet {
         self.cstore.codegenned_defids(cnum)
     }
