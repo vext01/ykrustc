@@ -7,7 +7,7 @@ use rustc::hir::map::definitions::DefPathTable;
 use rustc::middle::cstore::{DepKind, ExternCrate, MetadataLoader};
 use rustc::mir::interpret::AllocDecodingState;
 use rustc_data_structures::indexed_vec::IndexVec;
-use rustc::util::nodemap::{FxHashMap, NodeMap};
+use rustc::util::nodemap::{FxHashMap, NodeMap, DefIdSet};
 
 use rustc_data_structures::sync::{Lrc, RwLock, Lock};
 use syntax::ast;
@@ -63,6 +63,9 @@ pub struct CrateMetadata {
 
     /// Used for decoding interpret::AllocIds in a cached & thread-safe manner.
     pub alloc_decoding_state: AllocDecodingState,
+
+    /// FIXME
+    pub yk_codegenned_defids: DefIdSet,
 
     // NOTE(eddyb) we pass `'static` to a `'tcx` parameter because this
     // lifetime is only used behind `Lazy` / `LazySeq`, and therefore

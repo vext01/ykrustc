@@ -1100,6 +1100,10 @@ pub fn start_codegen<'tcx>(
         }
     }
 
+    for cnum in tcx.crates() {
+        dbg!(cnum, tcx.codegenned_defids(*cnum));
+    }
+
     // Output Yorick debug sections into binary targets.
     if tcx.sess.crate_types.borrow().contains(&config::CrateType::Executable) {
         let (def_ids, _) = tcx.collect_and_partition_mono_items(LOCAL_CRATE);

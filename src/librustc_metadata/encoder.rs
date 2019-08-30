@@ -5,6 +5,7 @@ use rustc::middle::cstore::{LinkagePreference, NativeLibrary,
                             EncodedMetadata, ForeignModule};
 use rustc::hir::def::CtorKind;
 use rustc::hir::def_id::{CrateNum, CRATE_DEF_INDEX, DefIndex, DefId, LocalDefId, LOCAL_CRATE};
+use rustc::util::nodemap::DefIdSet;
 use rustc::hir::GenericParamKind;
 use rustc::hir::map::definitions::DefPathTable;
 use rustc_data_structures::fingerprint::Fingerprint;
@@ -458,6 +459,11 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
             self.lazy_seq(interpret_alloc_index)
         };
 
+        // Encode DefIds for Yorick.
+        let mut xxx = DefIdSet::default();
+        xxx.insert(DefId{krate: CrateNum::from_u32(666), index: DefIndex::from_u32(667)});
+        let yk_codegenned_defids = self.lazy(&xxx);
+
         i = self.position();
         let entries_index = self.entries_index.write_index(&mut self.opaque);
         let entries_index_bytes = self.position() - i;
@@ -513,6 +519,7 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
             exported_symbols,
             interpret_alloc_index,
             entries_index,
+            yk_codegenned_defids,
         });
 
         let total_bytes = self.position();

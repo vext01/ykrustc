@@ -18,7 +18,7 @@ use rustc::ty::query::Providers;
 use rustc::hir::def_id::{CrateNum, DefId, LOCAL_CRATE, CRATE_DEF_INDEX};
 use rustc::hir::map::{DefKey, DefPath, DefPathHash};
 use rustc::hir::map::definitions::DefPathTable;
-use rustc::util::nodemap::DefIdMap;
+use rustc::util::nodemap::{DefIdMap, DefIdSet};
 use rustc_data_structures::svh::Svh;
 
 use smallvec::SmallVec;
@@ -560,5 +560,9 @@ impl CrateStore for cstore::CStore {
     fn metadata_encoding_version(&self) -> &[u8]
     {
         schema::METADATA_HEADER
+    }
+
+    fn codegenned_defids(&self, cnum: CrateNum) -> DefIdSet {
+        self.get_crate_data(cnum).yk_codegenned_defids.clone()
     }
 }
