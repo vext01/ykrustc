@@ -3,7 +3,6 @@
 //! probably get a better home if someone can find one.
 
 use crate::hir::def_id::{CrateNum, DefId, LOCAL_CRATE};
-#[cfg(not(bootstrap))]
 use crate::util::nodemap::DefIdSet;
 use crate::hir::map as hir_map;
 use crate::hir::map::definitions::{DefKey, DefPathTable};
@@ -218,7 +217,6 @@ pub trait CrateStore {
                                  -> EncodedMetadata;
     fn metadata_encoding_version(&self) -> &[u8];
 
-    #[cfg(not(bootstrap))]
     fn codegenned_defids(&self, cnum: CrateNum) -> DefIdSet;
 }
 

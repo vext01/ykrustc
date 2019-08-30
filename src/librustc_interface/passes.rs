@@ -1100,7 +1100,6 @@ pub fn start_codegen<'tcx>(
         }
     }
 
-    #[cfg(not(bootstrap))]
     for cnum in tcx.crates() {
         dbg!(cnum, tcx.codegenned_defids(*cnum));
     }

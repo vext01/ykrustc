@@ -5,7 +5,6 @@ use rustc::middle::cstore::{LinkagePreference, NativeLibrary,
                             EncodedMetadata, ForeignModule};
 use rustc::hir::def::CtorKind;
 use rustc::hir::def_id::{CrateNum, CRATE_DEF_INDEX, DefIndex, DefId, LocalDefId, LOCAL_CRATE};
-#[cfg(not(bootstrap))]
 use rustc::util::nodemap::DefIdSet;
 use rustc::hir::GenericParamKind;
 use rustc::hir::map::definitions::DefPathTable;
@@ -461,11 +460,8 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
         };
 
         // Encode DefIds for Yorick.
-        #[cfg(not(bootstrap))]
         let mut xxx = DefIdSet::default();
-        #[cfg(not(bootstrap))]
         xxx.insert(DefId{krate: CrateNum::from_u32(666), index: DefIndex::from_u32(667)});
-        #[cfg(not(bootstrap))]
         let yk_codegenned_defids = self.lazy(&xxx);
 
         i = self.position();
@@ -523,8 +519,7 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
             exported_symbols,
             interpret_alloc_index,
             entries_index,
-            #[cfg(not(bootstrap))]
-            yk_codegenned_defids: yk_codegenned_defids,
+            yk_codegenned_defids,
         });
 
         let total_bytes = self.position();

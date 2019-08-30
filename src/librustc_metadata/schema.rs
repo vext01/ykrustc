@@ -3,7 +3,6 @@ use crate::index;
 use rustc::hir;
 use rustc::hir::def::{self, CtorKind};
 use rustc::hir::def_id::{DefIndex, DefId};
-#[cfg(not(bootstrap))]
 use rustc::util::nodemap::DefIdSet;
 use rustc::middle::exported_symbols::{ExportedSymbol, SymbolExportLevel};
 use rustc::middle::cstore::{DepKind, LinkagePreference, NativeLibrary, ForeignModule};
@@ -182,7 +181,6 @@ pub struct CrateRoot<'tcx> {
     pub impls: LazySeq<TraitImpls>,
     pub exported_symbols: LazySeq<(ExportedSymbol<'tcx>, SymbolExportLevel)>,
     pub interpret_alloc_index: LazySeq<u32>,
-    #[cfg(not(bootstrap))]
     pub yk_codegenned_defids: Lazy<DefIdSet>,
 
     pub entries_index: LazySeq<index::Index<'tcx>>,

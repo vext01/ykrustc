@@ -255,8 +255,6 @@ impl<'a> CrateLoader<'a> {
         let interpret_alloc_index: Vec<u32> = crate_root.interpret_alloc_index
                                                         .decode(&metadata)
                                                         .collect();
-
-        #[cfg(not(bootstrap))]
         let yk_codegenned_defids = crate_root.yk_codegenned_defids.decode(&metadata);
 
         let trait_impls = crate_root
@@ -279,7 +277,6 @@ impl<'a> CrateLoader<'a> {
             dependencies: Lock::new(dependencies),
             source_map_import_info: RwLock::new(vec![]),
             alloc_decoding_state: AllocDecodingState::new(interpret_alloc_index),
-            #[cfg(not(bootstrap))]
             yk_codegenned_defids,
             dep_kind: Lock::new(dep_kind),
             source: cstore::CrateSource {
