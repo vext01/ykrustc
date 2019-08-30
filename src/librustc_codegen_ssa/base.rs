@@ -374,9 +374,6 @@ pub fn codegen_instance<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>>(
     // and to allow finding the last function before LLVM aborts from
     // release builds.
     info!("codegen_instance({})", instance);
-    let def_id = instance.def_id();
-    let cg_inst = format!("crate={}, index={}", cx.tcx().crate_hash(def_id.krate).as_u64(), def_id.index.as_u32());
-    dbg!(cg_inst);
 
     let sig = instance.fn_sig(cx.tcx());
     let sig = cx.tcx().normalize_erasing_late_bound_regions(ty::ParamEnv::reveal_all(), &sig);
