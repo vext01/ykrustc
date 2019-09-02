@@ -562,7 +562,9 @@ impl CrateStore for cstore::CStore {
         schema::METADATA_HEADER
     }
 
-    fn codegenned_defids(&self, cnum: CrateNum) -> DefIdSet {
-        self.get_crate_data(cnum).yk_codegenned_defids.clone()
+    fn codegenned_defids(&self, _cnum: CrateNum) -> DefIdSet {
+        DefIdSet::default()
+        //let md = self.get_crate_data(cnum);
+        //md.root.yk_codegenned_defids.decode(self).clone()
     }
 }
