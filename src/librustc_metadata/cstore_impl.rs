@@ -18,7 +18,7 @@ use rustc::ty::query::Providers;
 use rustc::hir::def_id::{CrateNum, DefId, LOCAL_CRATE, CRATE_DEF_INDEX};
 use rustc::hir::map::{DefKey, DefPath, DefPathHash};
 use rustc::hir::map::definitions::DefPathTable;
-use rustc::util::nodemap::{DefIdMap, DefIdSet};
+use rustc::util::nodemap::DefIdMap;
 use rustc_data_structures::svh::Svh;
 
 use smallvec::SmallVec;
@@ -245,6 +245,10 @@ provide! { <'tcx> tcx, def_id, other, cdata,
     used_crate_source => { Lrc::new(cdata.source.clone()) }
 
     exported_symbols => { Arc::new(cdata.exported_symbols(tcx)) }
+
+    codegenned_indices => {
+        cdata.codegenned_indices(tcx)
+    }
 }
 
 pub fn provide<'tcx>(providers: &mut Providers<'tcx>) {
@@ -562,9 +566,9 @@ impl CrateStore for cstore::CStore {
         schema::METADATA_HEADER
     }
 
-    fn codegenned_defids(&self, _cnum: CrateNum) -> DefIdSet {
-        DefIdSet::default()
-        //let md = self.get_crate_data(cnum);
-        //md.root.yk_codegenned_defids.decode(self).clone()
-    }
+    //fn codegenned_indices(&self, _cnum: CrateNum) -> Vec<DefIndex> {
+    //    DefIdSet::default()
+    //    //let md = self.get_crate_data(cnum);
+    //    //md.root.yk_codegenned_defids.decode(self).clone()
+    //}
 }

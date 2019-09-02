@@ -6,7 +6,7 @@ use log::{debug, info, warn, log_enabled};
 use rustc::dep_graph::DepGraph;
 use rustc::hir;
 use rustc::hir::lowering::lower_crate;
-use rustc::hir::def_id::{CrateNum, LOCAL_CRATE};
+use rustc::hir::def_id::{CrateNum, LOCAL_CRATE, DefId, DefIndex};
 use rustc::lint;
 use rustc::middle::{self, reachable, resolve_lifetime, stability};
 use rustc::middle::privacy::AccessLevels;
@@ -58,6 +58,7 @@ use serialize::json;
 use tempfile::Builder as TempFileBuilder;
 
 use std::any::Any;
+use std::borrow::Borrow;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -1100,13 +1101,20 @@ pub fn start_codegen<'tcx>(
         }
     }
 
-    for cnum in tcx.crates() {
-        dbg!(cnum, tcx.codegenned_defids(*cnum));
-    }
+    //for cnum in tcx.crates() {
+    //    dbg!(cnum, tcx.codegenned_indices(*cnum));
+    //}
 
     // Output Yorick debug sections into binary targets.
     if tcx.sess.crate_types.borrow().contains(&config::CrateType::Executable) {
-        let (def_ids, _) = tcx.collect_and_partition_mono_items(LOCAL_CRATE);
+        let def_ids = tcx.collect_and_partition_mono_items(LOCAL_CRATE).0;
+        let def_ids: &DefIdSet = def_ids.borrow();
+        let mut def_ids = def_ids.clone();
+        for cnum in tcx.crates() {
+            dbg!(cnum, tcx.codegenned_indices(*cnum));
+            def_ids.extend(tcx.codegenned_indices(*cnum).iter()
+                .map(|idx| DefId{krate: *cnum, index: *idx}));
+        }
         let sir_mode = if tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
             // The user passed "--emit yk-sir" so we will output textual SIR and stop.
             SirMode::TextDump(outputs.path(OutputType::YkSir))

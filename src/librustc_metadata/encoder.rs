@@ -25,6 +25,7 @@ use rustc::util::nodemap::FxHashMap;
 use rustc_data_structures::stable_hasher::StableHasher;
 use rustc_serialize::{Encodable, Encoder, SpecializedEncoder, opaque};
 
+use std::borrow::Borrow;
 use std::hash::Hash;
 use std::path::Path;
 use rustc_data_structures::sync::Lrc;
@@ -460,9 +461,15 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
         };
 
         // Encode DefIds for Yorick.
-        let mut xxx = DefIdSet::default();
-        xxx.insert(DefId{krate: CrateNum::from_u32(666), index: DefIndex::from_u32(667)});
-        let yk_codegenned_defids = self.lazy(&xxx);
+        let def_idxs = tcx.collect_and_partition_mono_items(LOCAL_CRATE).0;
+        let def_idxs: &DefIdSet = def_idxs.borrow();
+        let def_idxs: Vec<DefIndex> = def_idxs.iter()
+            .filter(|d| tcx.is_mir_available(**d))
+            .map(|d| {
+                debug_assert!(d.krate == LOCAL_CRATE);
+                d.index
+            }).collect();
+        let codegenned_indices = self.lazy(&def_idxs);
 
         i = self.position();
         let entries_index = self.entries_index.write_index(&mut self.opaque);
@@ -519,7 +526,7 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
             exported_symbols,
             interpret_alloc_index,
             entries_index,
-            yk_codegenned_defids,
+            codegenned_indices,
         });
 
         let total_bytes = self.position();

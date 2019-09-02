@@ -1147,6 +1147,16 @@ impl<'a, 'tcx> CrateMetadata {
         }
     }
 
+    pub fn codegenned_indices(&self,
+                            tcx: TyCtxt<'a, 'tcx, 'tcx>)
+                            -> Vec<DefIndex> {
+        if self.proc_macros.is_some() {
+            vec![]
+        } else {
+            self.root.codegenned_indices.decode((self, tcx))
+        }
+    }
+
     pub fn get_rendered_const(&self, id: DefIndex) -> String {
         match self.entry(id).kind {
             EntryKind::Const(_, data) |

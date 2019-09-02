@@ -3,7 +3,7 @@
 //! probably get a better home if someone can find one.
 
 use crate::hir::def_id::{CrateNum, DefId, LOCAL_CRATE};
-use crate::util::nodemap::DefIdSet;
+//use crate::util::nodemap::DefIdSet;
 use crate::hir::map as hir_map;
 use crate::hir::map::definitions::{DefKey, DefPathTable};
 use rustc_data_structures::svh::Svh;
@@ -217,7 +217,7 @@ pub trait CrateStore {
                                  -> EncodedMetadata;
     fn metadata_encoding_version(&self) -> &[u8];
 
-    fn codegenned_defids(&self, cnum: CrateNum) -> DefIdSet;
+    //fn codegenned_defids(&self, cnum: CrateNum) -> DefIdSet;
 }
 
 pub type CrateStoreDyn = dyn CrateStore + sync::Sync;

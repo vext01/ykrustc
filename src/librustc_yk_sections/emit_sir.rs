@@ -20,7 +20,7 @@ use rustc::mir::{
     Body, Local, BasicBlockData, Statement, StatementKind, Place, PlaceBase, Rvalue, Operand,
     Terminator, TerminatorKind, Constant, BinOp, NullOp
 };
-use rustc::middle::lang_items::ExchangeMallocFnLangItem;
+//use rustc::middle::lang_items::ExchangeMallocFnLangItem;
 use rustc::mir::interpret::{ConstValue, Scalar};
 use rustc::util::nodemap::DefIdSet;
 use std::path::PathBuf;
@@ -176,7 +176,7 @@ impl<'a, 'tcx, 'gcx> ConvCx<'a, 'tcx, 'gcx> {
                         true => None,
                         false => Some(self.tcx.symbol_name(inst).as_str().get().to_owned()),
                     };
-                    self.callee_def_ids.insert(*target_def_id);
+                    //self.callee_def_ids.insert(*target_def_id);
                     ykpack::CallOperand::Fn(self.lower_def_id(target_def_id), sym_name)
                 } else {
                     // FIXME -- implement other callables.
@@ -254,10 +254,10 @@ impl<'a, 'tcx, 'gcx> ConvCx<'a, 'tcx, 'gcx> {
                 Ok(ykpack::Rvalue::BinaryOp(self.lower_binary_op(*bin_op), self.lower_operand(o1)?,
                     self.lower_operand(o2)?)),
             Rvalue::NullaryOp(NullOp::Box, _) => {
-                let def_id = self.tcx.lang_items()
-                    .require(ExchangeMallocFnLangItem)
-                    .expect("can't find DefId for ExchangeMallocFnLangItem");
-                self.callee_def_ids.insert(def_id);
+                //let def_id = self.tcx.lang_items()
+                //    .require(ExchangeMallocFnLangItem)
+                //    .expect("can't find DefId for ExchangeMallocFnLangItem");
+                //self.callee_def_ids.insert(def_id);
                 Err(()) // FIXME: decide how to lower boxes.
             },
             _ => Err(()),

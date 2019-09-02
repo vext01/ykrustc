@@ -1468,9 +1468,9 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
         self.cstore.crate_data_as_rc_any(cnum)
     }
 
-    pub fn codegenned_defids(&self, cnum: CrateNum) -> DefIdSet {
-        self.cstore.codegenned_defids(cnum)
-    }
+    //pub fn codegenned_defids(&self, cnum: CrateNum) -> DefIdSet {
+    //    self.cstore.codegenned_defids(cnum)
+    //}
 
     #[inline(always)]
     pub fn create_stable_hashing_context(self) -> StableHashingContext<'a> {

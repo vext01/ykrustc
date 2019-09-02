@@ -709,6 +709,9 @@ rustc_queries! {
         }
         query upstream_monomorphizations_for(_: DefId)
             -> Option<&'tcx FxHashMap<SubstsRef<'tcx>, CrateNum>> {}
+        query codegenned_indices(k: CrateNum) -> Vec<DefIndex> {
+            desc { "collecting codegenned indices" }
+        }
     }
 
     Other {
