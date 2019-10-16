@@ -295,6 +295,11 @@ impl<'a, 'tcx> ConvCx<'a, 'tcx> {
             Rvalue::BinaryOp(bin_op, o1, o2) =>
                 Ok(ykpack::Rvalue::BinaryOp(self.lower_binary_op(*bin_op), self.lower_operand(o1)?,
                     self.lower_operand(o2)?)),
+            Rvalue::CheckedBinaryOp(bin_op, o1, o2) =>
+                Ok(ykpack::Rvalue::CheckedBinaryOp(
+                        self.lower_binary_op(*bin_op),
+                        self.lower_operand(o1)?,
+                        self.lower_operand(o2)?)),
             Rvalue::NullaryOp(NullOp::Box, _) => {
                 // This is actually a call to ExchangeMallocFnLangItem.
                 Err(()) // FIXME: decide how to lower boxes.
