@@ -358,7 +358,16 @@ impl<'a, 'tcx> ConvCx<'a, 'tcx> {
         match ty.sty {
             ty::Uint(t) => Ok(ykpack::Constant::Int(self.lower_uint(t, sclr))),
             ty::Int(t) => Ok(ykpack::Constant::Int(self.lower_int(t, sclr))),
+            ty::Bool => Ok(ykpack::Constant::Int(self.lower_bool(sclr))),
             _ => Err(()), // FIXME Not implemented.
+        }
+    }
+
+    fn lower_bool(&mut self, sclr: &Scalar) -> ykpack::ConstantInt {
+        match sclr {
+            Scalar::Raw{data: 0, size: 1} => ykpack::ConstantInt::false_(),
+            Scalar::Raw{data: 1, size: 1} => ykpack::ConstantInt::true_(),
+            _ => panic!("bogus boolean in MIR"),
         }
     }
 
