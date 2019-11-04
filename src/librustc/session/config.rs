@@ -2292,7 +2292,7 @@ fn parse_target_triple(matches: &getopts::Matches, error_format: ErrorOutputType
 
 fn parse_opt_level(
     matches: &getopts::Matches,
-    cg: &CodegenOptions,
+    cg: &mut CodegenOptions,
     error_format: ErrorOutputType,
 ) -> OptLevel {
     // The `-O` and `-C opt-level` flags specify the same setting, so we want to be able
@@ -2309,7 +2309,7 @@ fn parse_opt_level(
             None
         }
     }).max();
-    if max_o > max_c {
+    let opt_level = if max_o > max_c {
         OptLevel::Default
     } else {
         match cg.opt_level.as_ref().map(String::as_ref) {
@@ -2333,11 +2333,13 @@ fn parse_opt_level(
         }
     };
 
-    // Disable hardware tracing when optimisations are enabled, switching to software tracing
-    // instead.
+    // Disable hardware tracing when optimisations are enabled.
+    // https://github.com/softdevteam/ykrustc/issues/66
     if opt_level != OptLevel::No && cg.tracer == TracerMode::Hardware {
        cg.tracer = TracerMode::Software;
     }
+
+    opt_level
 }
 
 fn select_debuginfo(
@@ -2554,11 +2556,13 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
         error_format,
     );
 
-    let cg = cg;
 
     let sysroot_opt = matches.opt_str("sysroot").map(|m| PathBuf::from(&m));
     let target_triple = parse_target_triple(matches, error_format);
-    let opt_level = parse_opt_level(matches, &cg, error_format);
+    let opt_level = parse_opt_level(matches, &mut cg, error_format);
+
+    let cg = cg;
+
     // The `-g` and `-C debuginfo` flags specify the same setting, so we want to be able
     // to use them interchangeably. See the note above (regarding `-O` and `-C opt-level`)
     // for more details.

@@ -3893,6 +3893,7 @@ dependencies = [
  "rustc",
  "rustc_codegen_utils",
  "rustc_data_structures",
+ "rustc_index",
  "rustc_yk_link",
  "syntax",
  "syntax_pos",

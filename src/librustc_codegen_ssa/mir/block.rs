@@ -148,8 +148,8 @@ impl<'a, 'tcx> TerminatorCodegenHelper<'a, 'tcx> {
                     let did = fx.instance.def.def_id();
                     let lbl_name = CString::new(format!("__YK_RET_{}_{}_{}", did.krate.as_u32(),
                                                 did.index.as_u32(), self.bb.index())).unwrap();
-                    let di_sp = fx.fn_metadata(self.terminator.source_info.span);
-                    bx.add_yk_block_label_at_end(*di_sp, lbl_name);
+                    let di_sp = fx.fn_metadata(self.terminator.source_info);
+                    bx.add_yk_block_label_at_end(di_sp, lbl_name);
                 }
 
                 fx.store_return(bx, ret_dest, &fn_ty.ret, llret);
@@ -802,8 +802,8 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             let did = self.instance.def.def_id();
             let lbl_name = CString::new(format!("__YK_BLK_{}_{}_{}", did.krate.as_u32(),
                                         did.index.as_u32(), bb.index())).unwrap();
-            let di_sp = self.fn_metadata(data.terminator().source_info.span);
-            bx.add_yk_block_label_at_end(*di_sp, lbl_name);
+            let di_sp = self.fn_metadata(data.terminator().source_info);
+            bx.add_yk_block_label_at_end(di_sp, lbl_name);
         }
 
         for statement in &data.statements {

@@ -1191,7 +1191,7 @@ impl<'a, 'tcx> CrateMetadata {
             DefIdSet::default()
         } else {
             let mut res = DefIdSet::default();
-            for idx in 1..self.root.entries_index.meta - 1 {
+            for idx in 1..self.def_path_table.size() {
                 let def_id = DefId{krate: self.cnum, index: DefIndex::from_usize(idx)};
                 if tcx.is_mir_available(def_id) {
                     res.insert(def_id);

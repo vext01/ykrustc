@@ -1,6 +1,6 @@
 use rustc::ty::{self, Ty, TypeFoldable, Instance};
 use rustc::ty::layout::{TyLayout, HasTyCtxt, FnTypeExt};
-use rustc::mir::{self, Body};
+use rustc::mir::{self, Body, SourceInfo};
 use rustc_target::abi::call::{FnType, PassMode};
 use crate::base;
 use crate::traits::*;
@@ -88,8 +88,8 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         )
     }
 
-    pub fn fn_metadata(&self, span: Span) -> &Bx::DIScope {
-        &self.debug_context.get_ref(span).fn_metadata
+    pub fn fn_metadata(&self, source_info: SourceInfo) -> Bx::DIScope {
+        self.debug_context.as_ref().unwrap().scopes[source_info.scope].scope_metadata.unwrap()
     }
 }
 
