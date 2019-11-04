@@ -8,5 +8,3 @@
 
 extern crate panic_runtime_abort;
 extern crate panic_runtime_lang_items;
-
-fn main() {}

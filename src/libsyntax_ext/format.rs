@@ -5,9 +5,10 @@ use fmt_macros as parse;
 
 use errors::DiagnosticBuilder;
 use errors::Applicability;
+use errors::pluralise;
 
 use syntax::ast;
-use syntax::ext::base::{self, *};
+use syntax_expand::base::{self, *};
 use syntax::parse::token;
 use syntax::ptr::P;
 use syntax::symbol::{Symbol, sym};
@@ -277,7 +278,7 @@ impl<'a, 'b> Context<'a, 'b> {
     /// format string.
     fn report_invalid_references(&self, numbered_position_args: bool) {
         let mut e;
-        let sp = if self.is_literal {
+        let sp = if self.is_literal { // Point at the formatting arguments.
             MultiSpan::from_spans(self.arg_spans.clone())
         } else {
             MultiSpan::from_span(self.fmtsp)
@@ -294,15 +295,18 @@ impl<'a, 'b> Context<'a, 'b> {
             .filter(|fmt| fmt.precision_span.is_some())
             .count();
         if self.names.is_empty() && !numbered_position_args && count != self.args.len() {
-            e = self.ecx.mut_span_err(
+            e = self.ecx.struct_span_err(
                 sp,
                 &format!(
                     "{} positional argument{} in format string, but {}",
                     count,
-                    if count != 1 { "s" } else { "" },
+                    pluralise!(count),
                     self.describe_num_args(),
                 ),
             );
+            for arg in &self.args { // Point at the arguments that will be formatted.
+                e.span_label(arg.span, "");
+            }
         } else {
             let (mut refs, spans): (Vec<_>, Vec<_>) = refs.unzip();
             // Avoid `invalid reference to positional arguments 7 and 7 (there is 1 argument)`
@@ -335,7 +339,7 @@ impl<'a, 'b> Context<'a, 'b> {
                 sp = MultiSpan::from_span(self.fmtsp);
             }
 
-            e = self.ecx.mut_span_err(sp,
+            e = self.ecx.struct_span_err(sp,
                 &format!("invalid reference to positional {} ({})",
                          arg_list,
                          self.describe_num_args()));
@@ -694,7 +698,7 @@ impl<'a, 'b> Context<'a, 'b> {
         // Now create a vector containing all the arguments
         let args = locals.into_iter().chain(counts.into_iter());
 
-        let args_array = self.ecx.expr_vec(self.fmtsp, args.collect());
+        let args_array = self.ecx.expr_vec(self.macsp, args.collect());
 
         // Constructs an AST equivalent to:
         //
@@ -723,12 +727,12 @@ impl<'a, 'b> Context<'a, 'b> {
         //
         // But the nested match expression is proved to perform not as well
         // as series of let's; the first approach does.
-        let pat = self.ecx.pat_tuple(self.fmtsp, pats);
-        let arm = self.ecx.arm(self.fmtsp, pat, args_array);
-        let head = self.ecx.expr(self.fmtsp, ast::ExprKind::Tup(heads));
-        let result = self.ecx.expr_match(self.fmtsp, head, vec![arm]);
+        let pat = self.ecx.pat_tuple(self.macsp, pats);
+        let arm = self.ecx.arm(self.macsp, pat, args_array);
+        let head = self.ecx.expr(self.macsp, ast::ExprKind::Tup(heads));
+        let result = self.ecx.expr_match(self.macsp, head, vec![arm]);
 
-        let args_slice = self.ecx.expr_addr_of(self.fmtsp, result);
+        let args_slice = self.ecx.expr_addr_of(self.macsp, result);
 
         // Now create the fmt::Arguments struct with all our locals we created.
         let (fn_name, fn_args) = if self.all_pieces_simple {

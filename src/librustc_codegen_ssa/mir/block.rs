@@ -1,9 +1,10 @@
+use rustc_index::vec::Idx;
 use rustc::middle::lang_items;
 use rustc::ty::{self, Ty, TypeFoldable, Instance};
 use rustc::ty::layout::{self, LayoutOf, HasTyCtxt, FnTypeExt};
-use rustc::mir::{self, Place, PlaceBase, Static, StaticKind};
+use rustc::mir::{self, PlaceBase, Static, StaticKind};
 use rustc::mir::interpret::PanicInfo;
-use rustc_target::abi::call::{ArgType, FnType, PassMode, IgnoreMode};
+use rustc_target::abi::call::{ArgType, FnType, PassMode};
 use rustc_target::spec::abi::Abi;
 use crate::base;
 use crate::MemFlags;
@@ -16,8 +17,7 @@ use crate::traits::*;
 
 use std::borrow::Cow;
 
-use syntax::symbol::Symbol;
-use syntax_pos::Pos;
+use syntax::{source_map::Span, symbol::Symbol};
 
 use super::{FunctionCx, LocalRef};
 use super::place::PlaceRef;
@@ -159,6 +159,26 @@ impl<'a, 'tcx> TerminatorCodegenHelper<'a, 'tcx> {
             }
         }
     }
+
+    // Generate sideeffect intrinsic if jumping to any of the targets can form
+    // a loop.
+    fn maybe_sideeffect<'b, 'tcx2: 'b, Bx: BuilderMethods<'b, 'tcx2>>(
+        &self,
+        mir: &'b mir::Body<'tcx>,
+        bx: &mut Bx,
+        targets: &[mir::BasicBlock],
+    ) {
+        if bx.tcx().sess.opts.debugging_opts.insert_sideeffect {
+            if targets.iter().any(|target| {
+                *target <= *self.bb
+                    && target
+                        .start_location()
+                        .is_predecessor_of(self.bb.start_location(), mir)
+            }) {
+                bx.sideeffect();
+            }
+        }
+    }
 }
 
 /// Codegen implementations for some terminator variants.
@@ -207,6 +227,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             let lltrue = helper.llblock(self, targets[0]);
             let llfalse = helper.llblock(self, targets[1]);
             if switch_ty == bx.tcx().types.bool {
+                helper.maybe_sideeffect(self.mir, &mut bx, targets.as_slice());
                 // Don't generate trivial icmps when switching on bool
                 if let [0] = values[..] {
                     bx.cond_br(discr.immediate(), llfalse, lltrue);
@@ -220,9 +241,11 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 );
                 let llval = bx.const_uint_big(switch_llty, values[0]);
                 let cmp = bx.icmp(IntPredicate::IntEQ, discr.immediate(), llval);
+                helper.maybe_sideeffect(self.mir, &mut bx, targets.as_slice());
                 bx.cond_br(cmp, lltrue, llfalse);
             }
         } else {
+            helper.maybe_sideeffect(self.mir, &mut bx, targets.as_slice());
             let (otherwise, targets) = targets.split_last().unwrap();
             bx.switch(
                 discr.immediate(),
@@ -235,14 +258,15 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
     }
 
     fn codegen_return_terminator(&mut self, mut bx: Bx) {
+        // Call `va_end` if this is the definition of a C-variadic function.
         if self.fn_ty.c_variadic {
-            match self.va_list_ref {
-                Some(va_list) => {
+            // The `VaList` "spoofed" argument is just after all the real arguments.
+            let va_list_arg_idx = self.fn_ty.args.len();
+            match self.locals[mir::Local::new(1 + va_list_arg_idx)] {
+                LocalRef::Place(va_list) => {
                     bx.va_end(va_list.llval);
                 }
-                None => {
-                    bug!("C-variadic function must have a `va_list_ref`");
-                }
+                _ => bug!("C-variadic function must have a `VaList` place"),
             }
         }
         if self.fn_ty.ret.layout.abi.is_uninhabited() {
@@ -253,13 +277,9 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             return;
         }
         let llval = match self.fn_ty.ret.mode {
-            PassMode::Ignore(IgnoreMode::Zst) | PassMode::Indirect(..) => {
+            PassMode::Ignore | PassMode::Indirect(..) => {
                 bx.ret_void();
                 return;
-            }
-
-            PassMode::Ignore(IgnoreMode::CVarArgs) => {
-                bug!("C-variadic arguments should never be the return type");
             }
 
             PassMode::Direct(_) | PassMode::Pair(..) => {
@@ -321,6 +341,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
 
         if let ty::InstanceDef::DropGlue(_, None) = drop_fn.def {
             // we don't actually need to drop anything.
+            helper.maybe_sideeffect(self.mir, &mut bx, &[target]);
             helper.funclet_br(self, &mut bx, target);
             return
         }
@@ -334,7 +355,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             args1 = [place.llval];
             &args1[..]
         };
-        let (drop_fn, fn_ty) = match ty.sty {
+        let (drop_fn, fn_ty) = match ty.kind {
             ty::Dynamic(..) => {
                 let sig = drop_fn.fn_sig(self.cx.tcx());
                 let sig = self.cx.tcx().normalize_erasing_late_bound_regions(
@@ -347,10 +368,11 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 (meth::DESTRUCTOR.get_fn(&mut bx, vtable, &fn_ty), fn_ty)
             }
             _ => {
-                (bx.get_fn(drop_fn),
+                (bx.get_fn_addr(drop_fn),
                  FnType::of_instance(&bx, drop_fn))
             }
         };
+        helper.maybe_sideeffect(self.mir, &mut bx, &[target]);
         helper.do_call(self, &mut bx, fn_ty, drop_fn, args,
                        Some((ReturnDest::Nothing, target)),
                        unwind);
@@ -386,6 +408,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
 
         // Don't codegen the panic block if success if known.
         if const_cond == Some(expected) {
+            helper.maybe_sideeffect(self.mir, &mut bx, &[target]);
             helper.funclet_br(self, &mut bx, target);
             return;
         }
@@ -396,6 +419,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         // Create the failure block and the conditional branch to it.
         let lltarget = helper.llblock(self, target);
         let panic_block = self.new_block("panic");
+        helper.maybe_sideeffect(self.mir, &mut bx, &[target]);
         if expected {
             bx.cond_br(cond, lltarget, panic_block.llbb());
         } else {
@@ -407,38 +431,19 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         self.set_debug_loc(&mut bx, terminator.source_info);
 
         // Get the location information.
-        let loc = bx.sess().source_map().lookup_char_pos(span.lo());
-        let filename = Symbol::intern(&loc.file.name.to_string());
-        let line = bx.const_u32(loc.line as u32);
-        let col = bx.const_u32(loc.col.to_usize() as u32 + 1);
+        let location = self.get_caller_location(&mut bx, span).immediate();
 
         // Put together the arguments to the panic entry point.
         let (lang_item, args) = match msg {
             PanicInfo::BoundsCheck { ref len, ref index } => {
                 let len = self.codegen_operand(&mut bx, len).immediate();
                 let index = self.codegen_operand(&mut bx, index).immediate();
-
-                let file_line_col = bx.static_panic_msg(
-                    None,
-                    filename,
-                    line,
-                    col,
-                    "panic_bounds_check_loc",
-                );
-                (lang_items::PanicBoundsCheckFnLangItem,
-                    vec![file_line_col, index, len])
+                (lang_items::PanicBoundsCheckFnLangItem, vec![location, index, len])
             }
             _ => {
                 let msg_str = Symbol::intern(msg.description());
-                let msg_file_line_col = bx.static_panic_msg(
-                    Some(msg_str),
-                    filename,
-                    line,
-                    col,
-                    "panic_loc",
-                );
-                (lang_items::PanicFnLangItem,
-                    vec![msg_file_line_col])
+                let msg = bx.const_str(msg_str);
+                (lang_items::PanicFnLangItem, vec![msg.0, msg.1, location])
             }
         };
 
@@ -446,7 +451,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         let def_id = common::langcall(bx.tcx(), Some(span), "", lang_item);
         let instance = ty::Instance::mono(bx.tcx(), def_id);
         let fn_ty = FnType::of_instance(&bx, instance);
-        let llfn = bx.get_fn(instance);
+        let llfn = bx.get_fn_addr(instance);
 
         // Codegen the actual panic invoke/call.
         helper.do_call(self, &mut bx, fn_ty, llfn, &args, None, cleanup);
@@ -466,7 +471,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         // Create the callee. This is a fn ptr or zero-sized and hence a kind of scalar.
         let callee = self.codegen_operand(&mut bx, func);
 
-        let (instance, mut llfn) = match callee.layout.ty.sty {
+        let (instance, mut llfn) = match callee.layout.ty.kind {
             ty::FnDef(def_id, substs) => {
                 (Some(ty::Instance::resolve(bx.tcx(),
                                             ty::ParamEnv::reveal_all(),
@@ -499,6 +504,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             if let Some(destination_ref) = destination.as_ref() {
                 let &(ref dest, target) = destination_ref;
                 self.codegen_transmute(&mut bx, &args[0], dest);
+                helper.maybe_sideeffect(self.mir, &mut bx, &[target]);
                 helper.funclet_br(self, &mut bx, target);
             } else {
                 // If we are trying to transmute to an uninhabited type,
@@ -513,10 +519,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             return;
         }
 
-        // The "spoofed" `VaListImpl` added to a C-variadic functions signature
-        // should not be included in the `extra_args` calculation.
-        let extra_args_start_idx = sig.inputs().len() - if sig.c_variadic { 1 } else { 0 };
-        let extra_args = &args[extra_args_start_idx..];
+        let extra_args = &args[sig.inputs().len()..];
         let extra_args = extra_args.iter().map(|op_arg| {
             let op_ty = op_arg.ty(self.mir, bx.tcx());
             self.monomorphize(&op_ty)
@@ -529,6 +532,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             Some(ty::InstanceDef::DropGlue(_, None)) => {
                 // Empty drop glue; a no-op.
                 let &(_, target) = destination.as_ref().unwrap();
+                helper.maybe_sideeffect(self.mir, &mut bx, &[target]);
                 helper.funclet_br(self, &mut bx, target);
                 return;
             }
@@ -540,44 +544,35 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             let ty = instance.unwrap().substs.type_at(0);
             let layout = bx.layout_of(ty);
             if layout.abi.is_uninhabited() {
-                let loc = bx.sess().source_map().lookup_char_pos(span.lo());
-                let filename = Symbol::intern(&loc.file.name.to_string());
-                let line = bx.const_u32(loc.line as u32);
-                let col = bx.const_u32(loc.col.to_usize() as u32 + 1);
-
-                let str = format!(
-                    "Attempted to instantiate uninhabited type {}",
-                    ty
-                );
-                let msg_str = Symbol::intern(&str);
-                let msg_file_line_col = bx.static_panic_msg(
-                    Some(msg_str),
-                    filename,
-                    line,
-                    col,
-                    "panic_loc",
-                );
+                let msg_str = format!("Attempted to instantiate uninhabited type {}", ty);
+                let msg = bx.const_str(Symbol::intern(&msg_str));
+                let location = self.get_caller_location(&mut bx, span).immediate();
 
                 // Obtain the panic entry point.
                 let def_id =
                     common::langcall(bx.tcx(), Some(span), "", lang_items::PanicFnLangItem);
                 let instance = ty::Instance::mono(bx.tcx(), def_id);
                 let fn_ty = FnType::of_instance(&bx, instance);
-                let llfn = bx.get_fn(instance);
+                let llfn = bx.get_fn_addr(instance);
 
+                if let Some((_, target)) = destination.as_ref() {
+                    helper.maybe_sideeffect(self.mir, &mut bx, &[*target]);
+                }
                 // Codegen the actual panic invoke/call.
                 helper.do_call(
                     self,
                     &mut bx,
                     fn_ty,
                     llfn,
-                    &[msg_file_line_col],
+                    &[msg.0, msg.1, location],
                     destination.as_ref().map(|(_, bb)| (ReturnDest::Nothing, *bb)),
                     cleanup,
                 );
             } else {
                 // a NOP
-                helper.funclet_br(self, &mut bx, destination.as_ref().unwrap().1)
+                let target = destination.as_ref().unwrap().1;
+                helper.maybe_sideeffect(self.mir, &mut bx, &[target]);
+                helper.funclet_br(self, &mut bx, target);
             }
             return;
         }
@@ -594,6 +589,21 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         } else {
             ReturnDest::Nothing
         };
+
+        if intrinsic == Some("caller_location") {
+            if let Some((_, target)) = destination.as_ref() {
+                let location = self.get_caller_location(&mut bx, span);
+
+                if let ReturnDest::IndirectOperand(tmp, _) = ret_dest {
+                    location.val.store(&mut bx, tmp);
+                }
+                self.store_return(&mut bx, ret_dest, &fn_ty.ret, location.immediate());
+
+                helper.maybe_sideeffect(self.mir, &mut bx, &[*target]);
+                helper.funclet_br(self, &mut bx, *target);
+            }
+            return;
+        }
 
         if intrinsic.is_some() && intrinsic != Some("drop_in_place") {
             let dest = match ret_dest {
@@ -612,53 +622,43 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 // checked by const-qualification, which also
                 // promotes any complex rvalues to constants.
                 if i == 2 && intrinsic.unwrap().starts_with("simd_shuffle") {
-                    match *arg {
+                    match arg {
                         // The shuffle array argument is usually not an explicit constant,
                         // but specified directly in the code. This means it gets promoted
                         // and we can then extract the value by evaluating the promoted.
-                        mir::Operand::Copy(
-                            Place {
-                                base: PlaceBase::Static(box Static {
-                                    kind: StaticKind::Promoted(promoted, _),
+                        mir::Operand::Copy(place) | mir::Operand::Move(place) => {
+                            if let mir::PlaceRef {
+                                base:
+                                    &PlaceBase::Static(box Static {
+                                        kind: StaticKind::Promoted(promoted, _),
+                                        ty,
+                                        def_id: _,
+                                    }),
+                                projection: &[],
+                            } = place.as_ref()
+                            {
+                                let param_env = ty::ParamEnv::reveal_all();
+                                let cid = mir::interpret::GlobalId {
+                                    instance: self.instance,
+                                    promoted: Some(promoted),
+                                };
+                                let c = bx.tcx().const_eval(param_env.and(cid));
+                                let (llval, ty) = self.simd_shuffle_indices(
+                                    &bx,
+                                    terminator.source_info.span,
                                     ty,
-                                    def_id: _,
-                                }),
-                                projection: box [],
+                                    c,
+                                );
+                                return OperandRef {
+                                    val: Immediate(llval),
+                                    layout: bx.layout_of(ty),
+                                };
+                            } else {
+                                span_bug!(span, "shuffle indices must be constant");
                             }
-                        ) |
-                        mir::Operand::Move(
-                            Place {
-                                base: PlaceBase::Static(box Static {
-                                    kind: StaticKind::Promoted(promoted, _),
-                                    ty,
-                                    def_id: _,
-                                }),
-                                projection: box [],
-                            }
-                        ) => {
-                            let param_env = ty::ParamEnv::reveal_all();
-                            let cid = mir::interpret::GlobalId {
-                                instance: self.instance,
-                                promoted: Some(promoted),
-                            };
-                            let c = bx.tcx().const_eval(param_env.and(cid));
-                            let (llval, ty) = self.simd_shuffle_indices(
-                                &bx,
-                                terminator.source_info.span,
-                                ty,
-                                c,
-                            );
-                            return OperandRef {
-                                val: Immediate(llval),
-                                layout: bx.layout_of(ty),
-                            };
+                        }
 
-                        }
-                        mir::Operand::Copy(_) |
-                        mir::Operand::Move(_) => {
-                            span_bug!(span, "shuffle indices must be constant");
-                        }
-                        mir::Operand::Constant(ref constant) => {
+                        mir::Operand::Constant(constant) => {
                             let c = self.eval_mir_constant(constant);
                             let (llval, ty) = self.simd_shuffle_indices(
                                 &bx,
@@ -686,6 +686,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             }
 
             if let Some((_, target)) = *destination {
+                helper.maybe_sideeffect(self.mir, &mut bx, &[target]);
                 helper.funclet_br(self, &mut bx, target);
             } else {
                 bx.unreachable();
@@ -702,26 +703,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             (&args[..], None)
         };
 
-        // Useful determining if the current argument is the "spoofed" `VaListImpl`
-        let last_arg_idx = if sig.inputs().is_empty() {
-            None
-        } else {
-            Some(sig.inputs().len() - 1)
-        };
         'make_args: for (i, arg) in first_args.iter().enumerate() {
-            // If this is a C-variadic function the function signature contains
-            // an "spoofed" `VaListImpl`. This argument is ignored, but we need to
-            // populate it with a dummy operand so that the users real arguments
-            // are not overwritten.
-            let i = if sig.c_variadic && last_arg_idx.map(|x| i >= x).unwrap_or(false) {
-                if i + 1 < fn_ty.args.len() {
-                    i + 1
-                } else {
-                    break 'make_args
-                }
-            } else {
-                i
-            };
             let mut op = self.codegen_operand(&mut bx, arg);
 
             if let (0, Some(ty::InstanceDef::Virtual(_, idx))) = (i, def) {
@@ -793,10 +775,13 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
 
         let fn_ptr = match (llfn, instance) {
             (Some(llfn), _) => llfn,
-            (None, Some(instance)) => bx.get_fn(instance),
+            (None, Some(instance)) => bx.get_fn_addr(instance),
             _ => span_bug!(span, "no llfn for call"),
         };
 
+        if let Some((_, target)) = destination.as_ref() {
+            helper.maybe_sideeffect(self.mir, &mut bx, &[*target]);
+        }
         helper.do_call(self, &mut bx, fn_ty, fn_ptr, &llargs,
                        destination.as_ref().map(|&(_, target)| (ret_dest, target)),
                        cleanup);
@@ -854,6 +839,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             }
 
             mir::TerminatorKind::Goto { target } => {
+                helper.maybe_sideeffect(self.mir, &mut bx, &[target]);
                 helper.funclet_br(self, &mut bx, target);
             }
 
@@ -1023,6 +1009,20 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         }
     }
 
+    fn get_caller_location(
+        &mut self,
+        bx: &mut Bx,
+        span: Span,
+    ) -> OperandRef<'tcx, Bx::Value> {
+        let caller = bx.tcx().sess.source_map().lookup_char_pos(span.lo());
+        let const_loc = bx.tcx().const_caller_location((
+            Symbol::intern(&caller.file.name.to_string()),
+            caller.line as u32,
+            caller.col_display as u32 + 1,
+        ));
+        OperandRef::from_const(bx, const_loc)
+    }
+
     fn get_personality_slot(
         &mut self,
         bx: &mut Bx
@@ -1121,10 +1121,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         if fn_ret.is_ignore() {
             return ReturnDest::Nothing;
         }
-        let dest = if let mir::Place {
-            base: mir::PlaceBase::Local(index),
-            projection: box [],
-        } = *dest {
+        let dest = if let Some(index) = dest.as_local() {
             match self.locals[index] {
                 LocalRef::Place(dest) => dest,
                 LocalRef::UnsizedPlace(_) => bug!("return type must be sized"),
@@ -1182,10 +1179,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         src: &mir::Operand<'tcx>,
         dst: &mir::Place<'tcx>
     ) {
-        if let mir::Place {
-            base: mir::PlaceBase::Local(index),
-            projection: box [],
-        } = *dst {
+        if let Some(index) = dst.as_local() {
             match self.locals[index] {
                 LocalRef::Place(place) => self.codegen_transmute_into(bx, src, place),
                 LocalRef::UnsizedPlace(_) => bug!("transmute must not involve unsized locals"),
