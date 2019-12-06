@@ -1,0 +1,15 @@
+[package]
+authors = ["The Software Development Team"]
+name = "rustc_codegen_yksir"
+version = "0.0.0"
+edition = "2018"
+
+[lib]
+name = "rustc_codegen_yksir"
+path = "lib.rs"
+crate-type = ["dylib"]
+test = false
+
+[dependencies]
+rustc_codegen_ssa = { path = "../librustc_codegen_ssa" }
+rustc = { path = "../librustc" }
