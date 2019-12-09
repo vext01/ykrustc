@@ -3481,7 +3481,6 @@ dependencies = [
  "rustc",
  "rustc_apfloat",
  "rustc_codegen_utils",
- "rustc_codegen_yksir",
  "rustc_data_structures",
  "rustc_errors",
  "rustc_fs_util",
@@ -3505,15 +3504,6 @@ dependencies = [
  "rustc_data_structures",
  "rustc_metadata",
  "rustc_target",
- "syntax",
- "syntax_pos",
-]
-
-[[package]]
-name = "rustc_codegen_yksir"
-version = "0.0.0"
-dependencies = [
- "rustc",
  "syntax",
  "syntax_pos",
 ]

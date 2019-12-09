@@ -46,6 +46,7 @@ pub mod glue;
 pub mod meth;
 pub mod mono_item;
 pub mod back;
+pub mod sir;
 
 pub struct ModuleCodegen<M> {
     /// The name of the module. When the crate may be saved between
