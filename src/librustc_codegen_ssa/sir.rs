@@ -61,18 +61,18 @@ pub struct DIScope {}
 #[derive(Debug, Copy, Clone)]
 pub struct DISubprogram {}
 
-pub struct CodegenCx<'ll, 'tcx> {
+pub struct SirCodegenCx<'ll, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pd: PhantomData<&'ll ()>,
 }
 
-impl AsmMethods for CodegenCx<'ll, 'tcx> {
+impl AsmMethods for SirCodegenCx<'ll, 'tcx> {
     fn codegen_global_asm(&self, ga: &hir::GlobalAsm) {
         unimplemented!();
     }
 }
 
-impl ConstMethods<'tcx> for CodegenCx<'ll, 'tcx> {
+impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn const_null(&self, t: &'ll Type) -> &'ll Value {
         unimplemented!();
     }
@@ -164,7 +164,7 @@ impl ConstMethods<'tcx> for CodegenCx<'ll, 'tcx> {
     }
 }
 
-impl DeclareMethods<'tcx> for CodegenCx<'ll, 'tcx> {
+impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn declare_global(
         &self,
         name: &str, ty: &'ll Type
@@ -225,7 +225,7 @@ impl DeclareMethods<'tcx> for CodegenCx<'ll, 'tcx> {
     }
 }
 
-impl DebugInfoMethods<'tcx> for CodegenCx<'ll, 'tcx> {
+impl DebugInfoMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn create_function_debug_context(
         &self,
         instance: Instance<'tcx>,
@@ -262,7 +262,7 @@ impl DebugInfoMethods<'tcx> for CodegenCx<'ll, 'tcx> {
     }
 }
 
-impl PreDefineMethods<'tcx> for CodegenCx<'ll, 'tcx> {
+impl PreDefineMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn predefine_static(&self,
                                   def_id: DefId,
                                   linkage: Linkage,
@@ -280,13 +280,13 @@ impl PreDefineMethods<'tcx> for CodegenCx<'ll, 'tcx> {
     }
 }
 
-impl ty::layout::HasParamEnv<'tcx> for CodegenCx<'ll, 'tcx> {
+impl ty::layout::HasParamEnv<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn param_env(&self) -> ty::ParamEnv<'tcx> {
         unimplemented!();
     }
 }
 
-impl StaticMethods for CodegenCx<'ll, 'tcx> {
+impl StaticMethods for SirCodegenCx<'ll, 'tcx> {
     fn static_addr_of(
         &self,
         cv: &'ll Value,
@@ -305,7 +305,7 @@ impl StaticMethods for CodegenCx<'ll, 'tcx> {
     }
 }
 
-impl MiscMethods<'tcx> for CodegenCx<'ll, 'tcx> {
+impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn vtables(&self) -> &RefCell<FxHashMap<(Ty<'tcx>,
                                 Option<ty::PolyExistentialTraitRef<'tcx>>), &'ll Value>>
     {
@@ -357,7 +357,7 @@ impl MiscMethods<'tcx> for CodegenCx<'ll, 'tcx> {
     }
 }
 
-impl BaseTypeMethods<'tcx> for CodegenCx<'ll, 'tcx> {
+impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn type_i1(&self) -> &'ll Type {
         unimplemented!();
     }
@@ -439,13 +439,13 @@ impl BaseTypeMethods<'tcx> for CodegenCx<'ll, 'tcx> {
     }
 }
 
-impl HasTargetSpec for CodegenCx<'ll, 'tcx> {
+impl HasTargetSpec for SirCodegenCx<'ll, 'tcx> {
     fn target_spec(&self) -> &Target {
         unimplemented!();
     }
 }
 
-impl BackendTypes for CodegenCx<'ll, 'tcx> {
+impl BackendTypes for SirCodegenCx<'ll, 'tcx> {
     type Value = &'ll Value;
     type Function = &'ll Function;
     type BasicBlock = &'ll BasicBlock;
@@ -455,19 +455,19 @@ impl BackendTypes for CodegenCx<'ll, 'tcx> {
     type DISubprogram = &'ll DISubprogram;
 }
 
-impl ty::layout::HasTyCtxt<'tcx> for CodegenCx<'ll, 'tcx> {
+impl ty::layout::HasTyCtxt<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn tcx(&self) -> TyCtxt<'tcx> {
         self.tcx
     }
 }
 
-impl ty::layout::HasDataLayout for CodegenCx<'ll, 'tcx> {
+impl ty::layout::HasDataLayout for SirCodegenCx<'ll, 'tcx> {
     fn data_layout(&self) -> &ty::layout::TargetDataLayout {
         unimplemented!();
     }
 }
 
-impl LayoutOf for CodegenCx<'ll, 'tcx> {
+impl LayoutOf for SirCodegenCx<'ll, 'tcx> {
     type Ty = Ty<'tcx>;
     type TyLayout = TyLayout<'tcx>;
 
@@ -481,7 +481,7 @@ impl LayoutOf for CodegenCx<'ll, 'tcx> {
 }
 
 
-impl LayoutTypeMethods<'tcx> for CodegenCx<'ll, 'tcx> {
+impl LayoutTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn backend_type(&self, layout: TyLayout<'tcx>) -> &'ll Type {
         unimplemented!();
     }
@@ -525,11 +525,11 @@ impl LayoutTypeMethods<'tcx> for CodegenCx<'ll, 'tcx> {
 }
 
 #[must_use]
-pub struct Builder<'a, 'tcx, 'll> {
-    cx: &'a CodegenCx<'ll, 'tcx>,
+pub struct SirBuilder<'a, 'tcx, 'll> {
+    cx: &'a SirCodegenCx<'ll, 'tcx>,
 }
 
-impl LayoutOf for Builder<'a, 'tcx, 'll> {
+impl LayoutOf for SirBuilder<'a, 'tcx, 'll> {
     type Ty = Ty<'tcx>;
     type TyLayout = TyLayout<'tcx>;
 
@@ -542,39 +542,39 @@ impl LayoutOf for Builder<'a, 'tcx, 'll> {
     }
 }
 
-impl ty::layout::HasDataLayout for Builder<'a, 'tcx, 'll> {
+impl ty::layout::HasDataLayout for SirBuilder<'a, 'tcx, 'll> {
     fn data_layout(&self) -> &ty::layout::TargetDataLayout {
         unimplemented!();
     }
 }
 
-impl ty::layout::HasTyCtxt<'tcx> for Builder<'a, 'tcx, 'll> {
+impl ty::layout::HasTyCtxt<'tcx> for SirBuilder<'a, 'tcx, 'll> {
     fn tcx(&self) -> TyCtxt<'tcx> {
         self.cx.tcx
     }
 }
 
-impl Deref for Builder<'a, 'tcx, 'll> {
-    type Target = CodegenCx<'ll, 'tcx>;
+impl Deref for SirBuilder<'a, 'tcx, 'll> {
+    type Target = SirCodegenCx<'ll, 'tcx>;
 
     fn deref(&self) -> &Self::Target {
         unimplemented!();
     }
 }
 
-impl HasTargetSpec for Builder<'a, 'tcx, 'll> {
+impl HasTargetSpec for SirBuilder<'a, 'tcx, 'll> {
     fn target_spec(&self) -> &Target {
         unimplemented!();
     }
 }
 
-impl StaticBuilderMethods for Builder<'a, 'tcx, 'll> {
+impl StaticBuilderMethods for SirBuilder<'a, 'tcx, 'll> {
     fn get_static(&mut self, def_id: DefId) -> &'ll Value {
         unimplemented!();
     }
 }
 
-impl AsmBuilderMethods<'tcx> for Builder<'a, 'tcx, 'll> {
+impl AsmBuilderMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
     fn codegen_inline_asm(
         &mut self,
         ia: &hir::InlineAsm,
@@ -586,7 +586,7 @@ impl AsmBuilderMethods<'tcx> for Builder<'a, 'tcx, 'll> {
     }
 }
 
-impl AbiBuilderMethods<'tcx> for Builder<'a, 'tcx, 'll> {
+impl AbiBuilderMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
     fn apply_attrs_callsite(
         &mut self,
         fn_abi: &FnAbi<'tcx, Ty<'tcx>>,
@@ -600,7 +600,7 @@ impl AbiBuilderMethods<'tcx> for Builder<'a, 'tcx, 'll> {
     }
 }
 
-impl DebugInfoBuilderMethods<'tcx> for Builder<'a, 'tcx, 'll> {
+impl DebugInfoBuilderMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
     fn declare_local(
         &mut self,
         dbg_context: &FunctionDebugContext<&'ll DIScope>,
@@ -635,7 +635,7 @@ impl DebugInfoBuilderMethods<'tcx> for Builder<'a, 'tcx, 'll> {
 }
 
 
-impl IntrinsicCallMethods<'tcx> for Builder<'a, 'tcx, 'll> {
+impl IntrinsicCallMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
     fn codegen_intrinsic_call(
         &mut self,
         instance: ty::Instance<'tcx>,
@@ -672,17 +672,17 @@ impl IntrinsicCallMethods<'tcx> for Builder<'a, 'tcx, 'll> {
     }
 }
 
-impl HasCodegen<'tcx> for Builder<'a, 'tcx, 'll> {
-    type CodegenCx = CodegenCx<'ll, 'tcx>;
+impl HasCodegen<'tcx> for SirBuilder<'a, 'tcx, 'll> {
+    type CodegenCx = SirCodegenCx<'ll, 'tcx>;
 }
 
-impl ty::layout::HasParamEnv<'tcx> for Builder<'a, 'tcx, 'll> {
+impl ty::layout::HasParamEnv<'tcx> for SirBuilder<'a, 'tcx, 'll> {
     fn param_env(&self) -> ty::ParamEnv<'tcx> {
         unimplemented!();
     }
 }
 
-impl ArgAbiMethods<'tcx> for Builder<'a, 'tcx, 'll> {
+impl ArgAbiMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
     fn store_fn_arg(
         &mut self,
         arg_abi: &ArgAbi<'tcx, Ty<'tcx>>,
@@ -705,17 +705,17 @@ impl ArgAbiMethods<'tcx> for Builder<'a, 'tcx, 'll> {
     }
 }
 
-impl BackendTypes for Builder<'a, 'tcx, 'll> {
-    type Value = <CodegenCx<'ll, 'tcx> as BackendTypes>::Value;
-    type Function = <CodegenCx<'ll, 'tcx> as BackendTypes>::Function;
-    type BasicBlock = <CodegenCx<'ll, 'tcx> as BackendTypes>::BasicBlock;
-    type Type = <CodegenCx<'ll, 'tcx> as BackendTypes>::Type;
-    type Funclet = <CodegenCx<'ll, 'tcx> as BackendTypes>::Funclet;
-    type DIScope = <CodegenCx<'ll, 'tcx> as BackendTypes>::DIScope;
-    type DISubprogram = <CodegenCx<'ll, 'tcx> as BackendTypes>::DISubprogram;
+impl BackendTypes for SirBuilder<'a, 'tcx, 'll> {
+    type Value = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::Value;
+    type Function = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::Function;
+    type BasicBlock = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::BasicBlock;
+    type Type = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::Type;
+    type Funclet = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::Funclet;
+    type DIScope = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::DIScope;
+    type DISubprogram = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::DISubprogram;
 }
 
-impl BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx, 'll> {
+impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'tcx, 'll> {
     fn new_block<'b>(cx: &'a Self::CodegenCx, llfn: Self::Function, name: &'b str) -> Self {
         unimplemented!();
     }
