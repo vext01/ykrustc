@@ -13,3 +13,5 @@ test = false
 [dependencies]
 rustc_codegen_ssa = { path = "../librustc_codegen_ssa" }
 rustc = { path = "../librustc" }
+syntax = { path = "../libsyntax" }
+syntax_pos = { path = "../libsyntax_pos" }

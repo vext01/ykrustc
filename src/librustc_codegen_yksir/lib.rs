@@ -5,16 +5,37 @@
 
 #![feature(libc)]
 #![feature(trusted_len)]
+#![feature(in_band_lifetimes)]
 
 extern crate libc;
 extern crate rustc;
 extern crate rustc_target;
 extern crate rustc_data_structures;
 
+use syntax::symbol::Symbol;
+use syntax::ast;
+use rustc_codegen_ssa::mir::debuginfo::VariableKind;
+use rustc::mir::interpret::{Scalar, GlobalAlloc, Allocation};
+use std::ops::Deref;
+use rustc_codegen_ssa::mir::debuginfo::{FunctionDebugContext, DebugScope};
+use rustc::hir::def_id::{CrateNum, CRATE_DEF_INDEX, LOCAL_CRATE};
+use rustc::hir;
+use rustc::mir;
+use rustc::mir::mono::{Linkage, Visibility};
+use std::cell::RefCell;
+use std::sync::Arc;
+use rustc::session::Session;
+use rustc::mir::mono::CodegenUnit;
+use rustc::util::nodemap::FxHashMap;
+use std::marker::PhantomData;
+use syntax::source_map::{DUMMY_SP, Span};
 use rustc_codegen_ssa::common::{IntPredicate, RealPredicate, AtomicOrdering, AtomicRmwBinOp, SynchronizationScope};
 use rustc_codegen_ssa::MemFlags;
-use rustc::ty::{self, Ty, TyCtxt};
+use rustc::ty::{self, Ty, TyCtxt, Instance, PolyFnSig};
 use rustc::ty::layout::{self, Align, Size, TyLayout};
+use rustc::ty::layout::{
+    LayoutError, LayoutOf, PointeeInfo, VariantIdx, HasParamEnv
+};
 use rustc::hir::def_id::DefId;
 use rustc::session::config;
 use rustc_data_structures::small_c_str::SmallCStr;
@@ -23,12 +44,30 @@ use rustc_codegen_ssa::base::to_immediate;
 use rustc_codegen_ssa::mir::operand::OperandRef;
 use rustc_codegen_ssa::mir::place::PlaceRef;
 use rustc_target::spec::{HasTargetSpec, Target};
+use rustc_target::abi::call::{ArgAbi, FnAbi, CastTarget, Reg};
 use std::ffi::CString;
 use std::ops::Range;
 use std::iter::TrustedLen;
 
-#[must_use]
-pub struct Builder {}
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum TypeKind {
+    Void,
+    Half,
+    Float,
+    Double,
+    Label,
+    Integer,
+    Function,
+    Struct,
+    Array,
+    Pointer,
+    Vector,
+    Metadata,
+    Token,
+    Unimplemented,
+}
+
+struct DILexicalBlock {}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct Value {}
@@ -51,7 +90,391 @@ pub struct DIScope {}
 #[derive(Debug, Copy, Clone)]
 pub struct DISubprogram {}
 
-impl BackendTypes for Builder {
+#[derive(Debug)]
+pub struct CodegenCx<'tcx> {
+    pd: PhantomData<&'tcx ()>,
+}
+
+impl AsmMethods for CodegenCx<'tcx> {
+    fn codegen_global_asm(&self, ga: &hir::GlobalAsm) {
+        unimplemented!();
+    }
+}
+
+impl ConstMethods<'tcx> for CodegenCx<'tcx> {
+    fn const_null(&self, t: &'ll Type) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_undef(&self, t: &'ll Type) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_int(&self, t: &'ll Type, i: i64) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_uint(&self, t: &'ll Type, i: u64) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_uint_big(&self, t: &'ll Type, u: u128) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_bool(&self, val: bool) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_i32(&self, i: i32) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_u32(&self, i: u32) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_u64(&self, i: u64) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_usize(&self, i: u64) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_u8(&self, i: u8) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_real(&self, t: &'ll Type, val: f64) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_str(&self, s: Symbol) -> (&'ll Value, &'ll Value) {
+        unimplemented!();
+    }
+
+    fn const_struct(
+        &self,
+        elts: &[&'ll Value],
+        packed: bool
+    ) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn const_to_opt_uint(&self, v: &'ll Value) -> Option<u64> {
+        unimplemented!();
+    }
+
+    fn const_to_opt_u128(&self, v: &'ll Value, sign_ext: bool) -> Option<u128> {
+        unimplemented!();
+    }
+
+    fn scalar_to_backend(
+        &self,
+        cv: Scalar,
+        layout: &layout::Scalar,
+        llty: &'ll Type,
+    ) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn from_const_alloc(
+        &self,
+        layout: TyLayout<'tcx>,
+        alloc: &Allocation,
+        offset: Size,
+    ) -> PlaceRef<'tcx, &'ll Value> {
+        unimplemented!();
+    }
+
+    fn const_ptrcast(&self, val: &'ll Value, ty: &'ll Type) -> &'ll Value {
+        unimplemented!();
+    }
+}
+
+impl DeclareMethods<'tcx> for CodegenCx<'tcx> {
+    fn declare_global(
+        &self,
+        name: &str, ty: &'ll Type
+    ) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn declare_cfn(
+        &self,
+        name: &str,
+        fn_type: &'ll Type
+    ) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn declare_fn(
+        &self,
+        name: &str,
+        sig: PolyFnSig<'tcx>,
+    ) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn define_global(
+        &self,
+        name: &str,
+        ty: &'ll Type
+    ) -> Option<&'ll Value> {
+        unimplemented!();
+    }
+
+    fn define_private_global(&self, ty: &'ll Type) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn define_fn(
+        &self,
+        name: &str,
+        fn_sig: PolyFnSig<'tcx>,
+    ) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn define_internal_fn(
+        &self,
+        name: &str,
+        fn_sig: PolyFnSig<'tcx>,
+    ) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn get_declared_value(&self, name: &str) -> Option<&'ll Value> {
+        unimplemented!();
+    }
+
+    fn get_defined_value(&self, name: &str) -> Option<&'ll Value> {
+        unimplemented!();
+    }
+}
+
+impl DebugInfoMethods<'tcx> for CodegenCx<'tcx> {
+    fn create_function_debug_context(
+        &self,
+        instance: Instance<'tcx>,
+        sig: ty::FnSig<'tcx>,
+        llfn: &'ll Value,
+        mir: &mir::Body<'_>,
+    ) -> Option<FunctionDebugContext<&'ll DIScope>> {
+        unimplemented!();
+    }
+
+    fn create_vtable_metadata(
+        &self,
+        ty: Ty<'tcx>,
+        vtable: Self::Value,
+    ) {
+        unimplemented!();
+    }
+
+    fn extend_scope_to_file(
+         &self,
+         scope_metadata: &'ll DIScope,
+         file: &syntax_pos::SourceFile,
+         defining_crate: CrateNum,
+     ) -> &'ll DILexicalBlock {
+        unimplemented!();
+     }
+
+    fn debuginfo_finalize(&self) {
+        unimplemented!();
+    }
+
+    fn has_debug(&self) -> bool {
+        unimplemented!();
+    }
+}
+
+impl PreDefineMethods<'tcx> for CodegenCx<'tcx> {
+    fn predefine_static(&self,
+                                  def_id: DefId,
+                                  linkage: Linkage,
+                                  visibility: Visibility,
+                                  symbol_name: &str) {
+        unimplemented!();
+    }
+
+    fn predefine_fn(&self,
+                    instance: Instance<'tcx>,
+                    linkage: Linkage,
+                    visibility: Visibility,
+                    symbol_name: &str) {
+        unimplemented!();
+    }
+}
+
+impl<'tcx> ty::layout::HasParamEnv<'tcx> for CodegenCx<'tcx> {
+    fn param_env(&self) -> ty::ParamEnv<'tcx> {
+        unimplemented!();
+    }
+}
+
+impl StaticMethods for CodegenCx<'tcx> {
+    fn static_addr_of(
+        &self,
+        cv: &'ll Value,
+        align: Align,
+        kind: Option<&str>,
+    ) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn codegen_static(
+        &self,
+        def_id: DefId,
+        is_mutable: bool,
+    ) {
+        unimplemented!();
+    }
+}
+
+impl<'tcx, 'll> MiscMethods<'tcx> for CodegenCx<'tcx> {
+    fn vtables(&self) -> &RefCell<FxHashMap<(Ty<'tcx>,
+                                Option<ty::PolyExistentialTraitRef<'tcx>>), &'ll Value>>
+    {
+        unimplemented!();
+    }
+
+    fn get_fn(&self, instance: Instance<'tcx>) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn get_fn_addr(&self, instance: Instance<'tcx>) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn eh_personality(&self) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn eh_unwind_resume(&self) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn sess(&self) -> &Session {
+        unimplemented!();
+    }
+
+    fn check_overflow(&self) -> bool {
+        unimplemented!();
+    }
+
+    fn codegen_unit(&self) -> &Arc<CodegenUnit<'tcx>> {
+        unimplemented!();
+    }
+
+    fn used_statics(&self) -> &RefCell<Vec<&'ll Value>> {
+        unimplemented!();
+    }
+
+    fn set_frame_pointer_elimination(&self, llfn: &'ll Value) {
+        unimplemented!();
+    }
+
+    fn apply_target_cpu_attr(&self, llfn: &'ll Value) {
+        unimplemented!();
+    }
+
+    fn create_used_variable(&self) {
+        unimplemented!();
+    }
+}
+
+impl BaseTypeMethods<'tcx> for CodegenCx<'tcx> {
+    fn type_i1(&self) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_i8(&self) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_i16(&self) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_i32(&self) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_i64(&self) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_i128(&self) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_isize(&self) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_f32(&self) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_f64(&self) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_func(
+        &self,
+        args: &[&'ll Type],
+        ret: &'ll Type
+    ) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_struct(
+        &self,
+        els: &[&'ll Type],
+        packed: bool
+    ) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn type_kind(&self, ty: &'ll Type) -> TypeKind {
+        unimplemented!();
+    }
+
+    fn type_ptr_to(&self, ty: &'ll Type) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn element_type(&self, ty: &'ll Type) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn vector_length(&self, ty: &'ll Type) -> usize {
+        unimplemented!();
+    }
+
+    fn float_width(&self, ty: &'ll Type) -> usize {
+        unimplemented!();
+    }
+
+    fn int_width(&self, ty: &'ll Type) -> u64 {
+        unimplemented!();
+    }
+
+    fn val_ty(&self, v: &'ll Value) -> &'ll Type {
+        unimplemented!();
+    }
+}
+
+impl HasTargetSpec for CodegenCx<'tcx> {
+    fn target_spec(&self) -> &Target {
+        unimplemented!();
+    }
+}
+
+impl BackendTypes for CodegenCx<'tcx> {
     type Value = Value;
     type Function = Function;
     type BasicBlock = BasicBlock;
@@ -59,9 +482,270 @@ impl BackendTypes for Builder {
     type Funclet = Funclet;
     type DIScope = DIScope;
     type DISubprogram = DISubprogram;
+
 }
 
-impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder {
+impl ty::layout::HasTyCtxt<'tcx> for CodegenCx<'tcx> {
+    fn tcx(&self) -> TyCtxt<'tcx> {
+        unimplemented!();
+    }
+}
+
+impl ty::layout::HasDataLayout for CodegenCx<'tcx> {
+    fn data_layout(&self) -> &ty::layout::TargetDataLayout {
+        unimplemented!();
+    }
+}
+
+impl<'tcx> LayoutOf for CodegenCx<'tcx> {
+    type Ty = Ty<'tcx>;
+    type TyLayout = TyLayout<'tcx>;
+
+    fn layout_of(&self, ty: Ty<'tcx>) -> Self::TyLayout {
+        unimplemented!();
+    }
+
+    fn spanned_layout_of(&self, ty: Ty<'tcx>, span: Span) -> Self::TyLayout {
+        unimplemented!();
+    }
+}
+
+
+impl<'tcx, 'll> LayoutTypeMethods<'tcx> for CodegenCx<'tcx> {
+    fn backend_type(&self, layout: TyLayout<'tcx>) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn immediate_backend_type(&self, layout: TyLayout<'tcx>) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn is_backend_immediate(&self, layout: TyLayout<'tcx>) -> bool {
+        unimplemented!();
+    }
+
+    fn is_backend_scalar_pair(&self, layout: TyLayout<'tcx>) -> bool {
+        unimplemented!();
+    }
+
+    fn backend_field_index(&self, layout: TyLayout<'tcx>, index: usize) -> u64 {
+        unimplemented!();
+    }
+
+    fn scalar_pair_element_backend_type(
+        &self,
+        layout: TyLayout<'tcx>,
+        index: usize,
+        immediate: bool
+    ) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn cast_backend_type(&self, ty: &CastTarget) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn fn_ptr_backend_type(&self, fn_abi: &FnAbi<'tcx, Ty<'tcx>>) -> &'ll Type {
+        unimplemented!();
+    }
+
+    fn reg_backend_type(&self, ty: &Reg) -> &'ll Type {
+        unimplemented!();
+    }
+}
+
+#[must_use]
+pub struct Builder<'tcx> {
+    pd: PhantomData<&'tcx ()>,
+}
+
+impl<'tcx> LayoutOf for Builder<'tcx> {
+    type Ty = Ty<'tcx>;
+    type TyLayout = TyLayout<'tcx>;
+
+    fn layout_of(&self, ty: Ty<'tcx>) -> Self::TyLayout {
+        unimplemented!();
+    }
+
+    fn spanned_layout_of(&self, ty: Ty<'tcx>, span: Span) -> Self::TyLayout {
+        unimplemented!();
+    }
+}
+
+impl ty::layout::HasDataLayout for Builder<'tcx> {
+    fn data_layout(&self) -> &ty::layout::TargetDataLayout {
+        unimplemented!();
+    }
+}
+
+impl ty::layout::HasTyCtxt<'tcx> for Builder<'tcx> {
+    fn tcx(&self) -> TyCtxt<'tcx> {
+        unimplemented!();
+    }
+}
+
+impl<'tcx> Deref for Builder<'tcx> {
+    type Target = CodegenCx<'tcx>;
+
+    fn deref(&self) -> &Self::Target {
+        unimplemented!();
+    }
+}
+
+impl HasTargetSpec for Builder<'tcx> {
+    fn target_spec(&self) -> &Target {
+        unimplemented!();
+    }
+}
+
+impl StaticBuilderMethods for Builder<'tcx> {
+    fn get_static(&mut self, def_id: DefId) -> &'ll Value {
+        unimplemented!();
+    }
+}
+
+impl AsmBuilderMethods<'tcx> for Builder<'tcx> {
+    fn codegen_inline_asm(
+        &mut self,
+        ia: &hir::InlineAsm,
+        outputs: Vec<PlaceRef<'tcx, &'ll Value>>,
+        mut inputs: Vec<&'ll Value>,
+        span: Span,
+    ) -> bool {
+        unimplemented!();
+    }
+}
+
+impl AbiBuilderMethods<'tcx> for Builder<'tcx> {
+    fn apply_attrs_callsite(
+        &mut self,
+        fn_abi: &FnAbi<'tcx, Ty<'tcx>>,
+        callsite: Self::Value
+    ) {
+        unimplemented!();
+    }
+
+    fn get_param(&self, index: usize) -> Self::Value {
+        unimplemented!();
+    }
+}
+
+impl DebugInfoBuilderMethods<'tcx> for Builder<'tcx> {
+    fn declare_local(
+        &mut self,
+        dbg_context: &FunctionDebugContext<&'ll DIScope>,
+        variable_name: ast::Name,
+        variable_type: Ty<'tcx>,
+        scope_metadata: &'ll DIScope,
+        variable_alloca: Self::Value,
+        direct_offset: Size,
+        indirect_offsets: &[Size],
+        variable_kind: VariableKind,
+        span: Span,
+    ) {
+        unimplemented!();
+    }
+
+    fn set_source_location(
+        &mut self,
+        debug_context: &mut FunctionDebugContext<&'ll DIScope>,
+        scope: &'ll DIScope,
+        span: Span,
+    ) {
+        unimplemented!();
+    }
+
+    fn insert_reference_to_gdb_debug_scripts_section_global(&mut self) {
+        unimplemented!();
+    }
+
+    fn set_var_name(&mut self, value: &'ll Value, name: &str) {
+        unimplemented!();
+    }
+}
+
+
+impl IntrinsicCallMethods<'tcx> for Builder<'tcx> {
+    fn codegen_intrinsic_call(
+        &mut self,
+        instance: ty::Instance<'tcx>,
+        fn_abi: &FnAbi<'tcx, Ty<'tcx>>,
+        args: &[OperandRef<'tcx, &'ll Value>],
+        llresult: &'ll Value,
+        span: Span,
+    ) {
+        unimplemented!();
+    }
+
+    fn abort(&mut self) {
+        unimplemented!();
+    }
+
+    fn assume(&mut self, val: Self::Value) {
+        unimplemented!();
+    }
+
+    fn expect(&mut self, cond: Self::Value, expected: bool) -> Self::Value {
+        unimplemented!();
+    }
+
+    fn sideeffect(&mut self) {
+        unimplemented!();
+    }
+
+    fn va_start(&mut self, va_list: &'ll Value) -> &'ll Value {
+        unimplemented!();
+    }
+
+    fn va_end(&mut self, va_list: &'ll Value) -> &'ll Value {
+        unimplemented!();
+    }
+}
+
+impl<'tcx> HasCodegen<'tcx> for Builder<'tcx> {
+    type CodegenCx = CodegenCx<'tcx>;
+}
+
+impl<'tcx> ty::layout::HasParamEnv<'tcx> for Builder<'tcx> {
+    fn param_env(&self) -> ty::ParamEnv<'tcx> {
+        unimplemented!();
+    }
+}
+
+impl<'tcx, 'll> ArgAbiMethods<'tcx> for Builder<'tcx> {
+    fn store_fn_arg(
+        &mut self,
+        arg_abi: &ArgAbi<'tcx, Ty<'tcx>>,
+        idx: &mut usize, dst: PlaceRef<'tcx, Self::Value>
+    ) {
+        unimplemented!();
+    }
+
+    fn store_arg(
+        &mut self,
+        arg_abi: &ArgAbi<'tcx, Ty<'tcx>>,
+        val: &'ll Value,
+        dst: PlaceRef<'tcx, &'ll Value>
+    ) {
+        unimplemented!();
+    }
+
+    fn arg_memory_ty(&self, arg_abi: &ArgAbi<'tcx, Ty<'tcx>>) -> &'ll Type {
+        unimplemented!();
+    }
+}
+
+impl BackendTypes for Builder<'tcx> {
+    type Value = <CodegenCx<'tcx> as BackendTypes>::Value;
+    type Function = <CodegenCx<'tcx> as BackendTypes>::Function;
+    type BasicBlock = <CodegenCx<'tcx> as BackendTypes>::BasicBlock;
+    type Type = <CodegenCx<'tcx> as BackendTypes>::Type;
+    type Funclet = <CodegenCx<'tcx> as BackendTypes>::Funclet;
+    type DIScope = <CodegenCx<'tcx> as BackendTypes>::DIScope;
+    type DISubprogram = <CodegenCx<'tcx> as BackendTypes>::DISubprogram;
+}
+
+impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'tcx> {
     fn new_block<'b>(cx: &'a Self::CodegenCx, llfn: Self::Function, name: &'b str) -> Self {
         unimplemented!();
     }

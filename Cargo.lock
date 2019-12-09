@@ -3464,6 +3464,7 @@ dependencies = [
 name = "rustc_codegen_llvm"
 version = "0.0.0"
 dependencies = [
+ "rustc_codegen_yksir",
  "rustc_llvm",
 ]
 
@@ -3504,6 +3505,16 @@ dependencies = [
  "rustc_data_structures",
  "rustc_metadata",
  "rustc_target",
+ "syntax",
+ "syntax_pos",
+]
+
+[[package]]
+name = "rustc_codegen_yksir"
+version = "0.0.0"
+dependencies = [
+ "rustc",
+ "rustc_codegen_ssa",
  "syntax",
  "syntax_pos",
 ]
