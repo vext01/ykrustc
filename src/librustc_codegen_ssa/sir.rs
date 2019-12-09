@@ -63,7 +63,21 @@ pub struct DISubprogram {}
 
 pub struct SirCodegenCx<'ll, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
+    pub codegen_unit: Arc<CodegenUnit<'tcx>>,
     pd: PhantomData<&'ll ()>,
+}
+
+impl SirCodegenCx<'ll, 'tcx> {
+    pub fn new(
+        tcx: TyCtxt<'tcx>,
+        codegen_unit: Arc<CodegenUnit<'tcx>>,
+    ) -> Self {
+        Self {
+            tcx,
+            codegen_unit,
+            pd: PhantomData,
+        }
+    }
 }
 
 impl AsmMethods for SirCodegenCx<'ll, 'tcx> {

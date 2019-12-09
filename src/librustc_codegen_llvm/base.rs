@@ -29,6 +29,7 @@ use rustc::ty::TyCtxt;
 use rustc::middle::exported_symbols;
 use rustc::session::config::DebugInfo;
 use rustc_codegen_ssa::mono_item::MonoItemExt;
+use rustc_codegen_ssa::sir;
 use rustc_data_structures::small_c_str::SmallCStr;
 
 use rustc_codegen_ssa::traits::*;
@@ -137,21 +138,25 @@ pub fn compile_codegen_unit(
         // Instantiate monomorphizations without filling out definitions yet...
         let llvm_module = ModuleLlvm::new(tcx, &cgu_name.as_str());
         {
-            let cx = CodegenCx::new(tcx, cgu, &llvm_module);
+            let cx = CodegenCx::new(tcx, cgu.clone(), &llvm_module);
+            let sir_cx = sir::SirCodegenCx::new(tcx, cgu);
             let mono_items = cx.codegen_unit
                                .items_in_deterministic_order(cx.tcx);
             for &(mono_item, (linkage, visibility)) in &mono_items {
                 mono_item.predefine::<Builder<'_, '_, '_>>(&cx, linkage, visibility);
+                mono_item.predefine::<sir::SirBuilder<'_, '_, '_>>(&sir_cx, linkage, visibility);
             }
 
             // ... and now that we have everything pre-defined, fill out those definitions.
             for &(mono_item, _) in &mono_items {
                 mono_item.define::<Builder<'_, '_, '_>>(&cx);
+                mono_item.define::<sir::SirBuilder<'_, '_, '_>>(&sir_cx);
             }
 
             // If this codegen unit contains the main function, also create the
             // wrapper here
             maybe_create_entry_wrapper::<Builder<'_, '_, '_>>(&cx);
+            maybe_create_entry_wrapper::<sir::SirBuilder<'_, '_, '_>>(&sir_cx);
 
             // Run replace-all-uses-with for statics that need it
             for &(old_g, new_g) in cx.statics_to_rauw().borrow().iter() {
