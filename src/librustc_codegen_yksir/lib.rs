@@ -1,24 +1,28 @@
 //! FIXME
 
 // FIXME jsut for now, or I will go mad.
-#![allow(unused_imports)]
+//#![allow(unused_imports)]
 
 #![feature(libc)]
 #![feature(trusted_len)]
 #![feature(in_band_lifetimes)]
 
-extern crate libc;
-extern crate rustc;
+//extern crate libc;
+//extern crate syntax;
+extern crate syntax_pos;
 extern crate rustc_target;
-extern crate rustc_data_structures;
+extern crate rustc_codegen_ssa;
 
+
+//use rustc_codegen_ssa::traits::Backend;
 use syntax::symbol::Symbol;
+use syntax::source_map::Span;
 use syntax::ast;
 use rustc_codegen_ssa::mir::debuginfo::VariableKind;
-use rustc::mir::interpret::{Scalar, GlobalAlloc, Allocation};
+use rustc::mir::interpret::{Scalar, Allocation};
 use std::ops::Deref;
-use rustc_codegen_ssa::mir::debuginfo::{FunctionDebugContext, DebugScope};
-use rustc::hir::def_id::{CrateNum, CRATE_DEF_INDEX, LOCAL_CRATE};
+use rustc_codegen_ssa::mir::debuginfo::{FunctionDebugContext};
+use rustc::hir::def_id::CrateNum;
 use rustc::hir;
 use rustc::mir;
 use rustc::mir::mono::{Linkage, Visibility};
@@ -27,20 +31,13 @@ use std::sync::Arc;
 use rustc::session::Session;
 use rustc::mir::mono::CodegenUnit;
 use rustc::util::nodemap::FxHashMap;
-use std::marker::PhantomData;
-use syntax::source_map::{DUMMY_SP, Span};
 use rustc_codegen_ssa::common::{IntPredicate, RealPredicate, AtomicOrdering, AtomicRmwBinOp, SynchronizationScope};
 use rustc_codegen_ssa::MemFlags;
 use rustc::ty::{self, Ty, TyCtxt, Instance, PolyFnSig};
 use rustc::ty::layout::{self, Align, Size, TyLayout};
-use rustc::ty::layout::{
-    LayoutError, LayoutOf, PointeeInfo, VariantIdx, HasParamEnv
-};
+use rustc::ty::layout::LayoutOf;
 use rustc::hir::def_id::DefId;
-use rustc::session::config;
-use rustc_data_structures::small_c_str::SmallCStr;
 use rustc_codegen_ssa::traits::*;
-use rustc_codegen_ssa::base::to_immediate;
 use rustc_codegen_ssa::mir::operand::OperandRef;
 use rustc_codegen_ssa::mir::place::PlaceRef;
 use rustc_target::spec::{HasTargetSpec, Target};
@@ -92,7 +89,7 @@ pub struct DISubprogram {}
 
 #[derive(Debug)]
 pub struct CodegenCx<'tcx> {
-    pd: PhantomData<&'tcx ()>,
+    pub tcx: TyCtxt<'tcx>,
 }
 
 impl AsmMethods for CodegenCx<'tcx> {
@@ -556,7 +553,7 @@ impl<'tcx, 'll> LayoutTypeMethods<'tcx> for CodegenCx<'tcx> {
 
 #[must_use]
 pub struct Builder<'tcx> {
-    pd: PhantomData<&'tcx ()>,
+    pub tcx: TyCtxt<'tcx>,
 }
 
 impl<'tcx> LayoutOf for Builder<'tcx> {

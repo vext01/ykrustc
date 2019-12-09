@@ -12,4 +12,3 @@ test = false
 
 [dependencies]
 rustc_llvm = { path = "../librustc_llvm" }
-rustc_codegen_yksir = { path = "../librustc_codegen_yksir" }
