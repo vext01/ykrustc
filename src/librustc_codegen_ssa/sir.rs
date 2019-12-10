@@ -43,8 +43,12 @@ struct DILexicalBlock {}
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct Value {}
 
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub struct Function {}
+//#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Clone)]
+pub struct Function<'ll> {
+    name: String,
+    ty: &'ll Type,
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct BasicBlock {}
@@ -64,7 +68,9 @@ pub struct DISubprogram {}
 pub struct SirCodegenCx<'ll, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub codegen_unit: Arc<CodegenUnit<'tcx>>,
-    pd: PhantomData<&'ll ()>,
+    pub functions: RefCell<Vec<Function<'ll>>>,
+    pub instances: RefCell<FxHashMap<Instance<'tcx>, &'ll Function<'ll>>>,
+    pub dummy_type: Type, // FIXME all types use this dummy for now.
 }
 
 impl SirCodegenCx<'ll, 'tcx> {
@@ -75,7 +81,9 @@ impl SirCodegenCx<'ll, 'tcx> {
         Self {
             tcx,
             codegen_unit,
-            pd: PhantomData,
+            functions: RefCell::new(Vec::new()),
+            instances: RefCell::new(FxHashMap::default()),
+            dummy_type: Type{},
         }
     }
 }
@@ -178,6 +186,24 @@ impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 }
 
+fn declare_raw_fn(
+    cx: &SirCodegenCx<'ll, '_>,
+    name: &str,
+    ty: &'ll Type,
+) -> &'ll Function<'ll> {
+    info!("declare_raw_fn(name={:?}, ty={:?})", name, ty);
+    // FIXME calling convention and ABI stuff?
+    let mut fns = cx.functions.borrow_mut();
+    let idx = fns.len();
+
+    fns.push(Function {
+        name: name.to_owned(),
+        ty,
+    });
+
+    &fns[idx]
+}
+
 impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn declare_global(
         &self,
@@ -190,7 +216,7 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         &self,
         name: &str,
         fn_type: &'ll Type
-    ) -> &'ll Function {
+    ) -> &'ll Function<'ll> {
         unimplemented!();
     }
 
@@ -198,8 +224,12 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         &self,
         name: &str,
         sig: PolyFnSig<'tcx>,
-    ) -> &'ll Function {
-        unimplemented!();
+    ) -> &'ll Function<'ll> {
+        info!("declare_rust_fn(name={:?}, sig={:?})", name, sig);
+        let sig = self.tcx.normalize_erasing_late_bound_regions(ty::ParamEnv::reveal_all(), &sig);
+        info!("declare_rust_fn (after region erasure) sig={:?}", sig);
+
+        declare_raw_fn(self, name, &self.dummy_type)
     }
 
     fn define_global(
@@ -244,7 +274,7 @@ impl DebugInfoMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         &self,
         instance: Instance<'tcx>,
         sig: ty::FnSig<'tcx>,
-        llfn: &'ll Function,
+        llfn: &'ll Function<'ll>,
         mir: &mir::Body<'_>,
     ) -> Option<FunctionDebugContext<&'ll DIScope>> {
         unimplemented!();
@@ -290,7 +320,11 @@ impl PreDefineMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
                     linkage: Linkage,
                     visibility: Visibility,
                     symbol_name: &str) {
-        unimplemented!();
+        let mono_sig = instance.fn_sig(self.tcx);
+        let lldecl = self.declare_fn(symbol_name, mono_sig);
+
+        debug!("predefine_fn: mono_sig = {:?} instance = {:?}", mono_sig, instance);
+        self.instances.borrow_mut().insert(instance, lldecl);
     }
 }
 
@@ -326,7 +360,7 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         unimplemented!();
     }
 
-    fn get_fn(&self, instance: Instance<'tcx>) -> &'ll Function {
+    fn get_fn(&self, instance: Instance<'tcx>) -> &'ll Function<'ll> {
         unimplemented!();
     }
 
@@ -358,11 +392,11 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         unimplemented!();
     }
 
-    fn set_frame_pointer_elimination(&self, llfn: &'ll Function) {
+    fn set_frame_pointer_elimination(&self, llfn: &'ll Function<'ll>) {
         unimplemented!();
     }
 
-    fn apply_target_cpu_attr(&self, llfn: &'ll Function) {
+    fn apply_target_cpu_attr(&self, llfn: &'ll Function<'ll>) {
         unimplemented!();
     }
 
@@ -461,7 +495,7 @@ impl HasTargetSpec for SirCodegenCx<'ll, 'tcx> {
 
 impl BackendTypes for SirCodegenCx<'ll, 'tcx> {
     type Value = &'ll Value;
-    type Function = &'ll Function;
+    type Function = &'ll Function<'ll>;
     type BasicBlock = &'ll BasicBlock;
     type Type = &'ll Type;
     type Funclet = &'ll Funclet;
