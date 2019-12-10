@@ -4,6 +4,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
+use rustc_index::{newtype_index, vec::{Idx, IndexVec}};
 use syntax::symbol::Symbol;
 use syntax::source_map::Span;
 use syntax::ast;
@@ -37,24 +38,39 @@ use std::ffi::CString;
 use std::ops::Range;
 use std::iter::TrustedLen;
 
+newtype_index! {
+    pub struct FunctionIdx {
+        DEBUG_FORMAT = "FunctionIdx[{}]"
+    }
+}
+
+newtype_index! {
+    pub struct TypeIdx {
+        DEBUG_FORMAT = "TypeIdx[{}]"
+    }
+}
+
 #[allow(dead_code)]
 struct DILexicalBlock {}
 
+/// The all-encompassing enum.
+/// Each is an index into the corresponding vector in SirCodegenCx.
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub struct Value {}
+pub enum Value {
+    Function(usize),
+}
 
-//#[derive(Debug, PartialEq, Copy, Clone)]
 #[derive(Debug, PartialEq, Clone)]
-pub struct Function<'ll> {
+pub struct Type {}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Function {
     name: String,
-    ty: &'ll Type,
+    ty: TypeIdx,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct BasicBlock {}
-
-#[derive(Debug, Copy, PartialEq, Clone)]
-pub struct Type {}
 
 #[derive(Debug)]
 pub struct Funclet {}
@@ -68,9 +84,16 @@ pub struct DISubprogram {}
 pub struct SirCodegenCx<'ll, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub codegen_unit: Arc<CodegenUnit<'tcx>>,
-    pub functions: RefCell<Vec<Function<'ll>>>,
-    pub instances: RefCell<FxHashMap<Instance<'tcx>, &'ll Function<'ll>>>,
-    pub dummy_type: Type, // FIXME all types use this dummy for now.
+    pub functions: RefCell<IndexVec<FunctionIdx, Function>>,
+
+    // FIXME Needed?
+    pub instances: RefCell<FxHashMap<Instance<'tcx>, Value>>,
+
+    pub types: IndexVec<TypeIdx, Type>,
+    pub dummy_type_idx: TypeIdx,
+
+    // FIXME: almost certain this lifetime will crop up later.
+    pd: PhantomData<&'ll ()>,
 }
 
 impl SirCodegenCx<'ll, 'tcx> {
@@ -81,9 +104,11 @@ impl SirCodegenCx<'ll, 'tcx> {
         Self {
             tcx,
             codegen_unit,
-            functions: RefCell::new(Vec::new()),
+            functions: RefCell::new(IndexVec::new()),
             instances: RefCell::new(FxHashMap::default()),
-            dummy_type: Type{},
+            types: IndexVec::from_elem_n(Type{}, 1),
+            dummy_type_idx: TypeIdx::from_usize(0),
+            pd: PhantomData,
         }
     }
 }
@@ -95,71 +120,71 @@ impl AsmMethods for SirCodegenCx<'ll, 'tcx> {
 }
 
 impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
-    fn const_null(&self, t: &'ll Type) -> &'ll Value {
+    fn const_null(&self, t: TypeIdx) -> Value {
         unimplemented!();
     }
 
-    fn const_undef(&self, t: &'ll Type) -> &'ll Value {
+    fn const_undef(&self, t: TypeIdx) -> Value {
         unimplemented!();
     }
 
-    fn const_int(&self, t: &'ll Type, i: i64) -> &'ll Value {
+    fn const_int(&self, t: TypeIdx, i: i64) -> Value {
         unimplemented!();
     }
 
-    fn const_uint(&self, t: &'ll Type, i: u64) -> &'ll Value {
+    fn const_uint(&self, t: TypeIdx, i: u64) -> Value {
         unimplemented!();
     }
 
-    fn const_uint_big(&self, t: &'ll Type, u: u128) -> &'ll Value {
+    fn const_uint_big(&self, t: TypeIdx, u: u128) -> Value {
         unimplemented!();
     }
 
-    fn const_bool(&self, val: bool) -> &'ll Value {
+    fn const_bool(&self, val: bool) -> Value {
         unimplemented!();
     }
 
-    fn const_i32(&self, i: i32) -> &'ll Value {
+    fn const_i32(&self, i: i32) -> Value {
         unimplemented!();
     }
 
-    fn const_u32(&self, i: u32) -> &'ll Value {
+    fn const_u32(&self, i: u32) -> Value {
         unimplemented!();
     }
 
-    fn const_u64(&self, i: u64) -> &'ll Value {
+    fn const_u64(&self, i: u64) -> Value {
         unimplemented!();
     }
 
-    fn const_usize(&self, i: u64) -> &'ll Value {
+    fn const_usize(&self, i: u64) -> Value {
         unimplemented!();
     }
 
-    fn const_u8(&self, i: u8) -> &'ll Value {
+    fn const_u8(&self, i: u8) -> Value {
         unimplemented!();
     }
 
-    fn const_real(&self, t: &'ll Type, val: f64) -> &'ll Value {
+    fn const_real(&self, t: TypeIdx, val: f64) -> Value {
         unimplemented!();
     }
 
-    fn const_str(&self, s: Symbol) -> (&'ll Value, &'ll Value) {
+    fn const_str(&self, s: Symbol) -> (Value, Value) {
         unimplemented!();
     }
 
     fn const_struct(
         &self,
-        elts: &[&'ll Value],
+        elts: &[Value],
         packed: bool
-    ) -> &'ll Value {
+    ) -> Value {
         unimplemented!();
     }
 
-    fn const_to_opt_uint(&self, v: &'ll Value) -> Option<u64> {
+    fn const_to_opt_uint(&self, v: Value) -> Option<u64> {
         unimplemented!();
     }
 
-    fn const_to_opt_u128(&self, v: &'ll Value, sign_ext: bool) -> Option<u128> {
+    fn const_to_opt_u128(&self, v: Value, sign_ext: bool) -> Option<u128> {
         unimplemented!();
     }
 
@@ -167,8 +192,8 @@ impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         &self,
         cv: Scalar,
         layout: &layout::Scalar,
-        llty: &'ll Type,
-    ) -> &'ll Value {
+        llty: TypeIdx,
+    ) -> Value {
         unimplemented!();
     }
 
@@ -177,20 +202,20 @@ impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         layout: TyLayout<'tcx>,
         alloc: &Allocation,
         offset: Size,
-    ) -> PlaceRef<'tcx, &'ll Value> {
+    ) -> PlaceRef<'tcx, Value> {
         unimplemented!();
     }
 
-    fn const_ptrcast(&self, val: &'ll Value, ty: &'ll Type) -> &'ll Value {
+    fn const_ptrcast(&self, val: Value, ty: TypeIdx) -> Value {
         unimplemented!();
     }
 }
 
 fn declare_raw_fn(
-    cx: &SirCodegenCx<'ll, '_>,
+    cx: &SirCodegenCx<'ll, 'tcx>,
     name: &str,
-    ty: &'ll Type,
-) -> &'ll Function<'ll> {
+    ty: TypeIdx,
+) -> Value {
     info!("declare_raw_fn(name={:?}, ty={:?})", name, ty);
     // FIXME calling convention and ABI stuff?
     let mut fns = cx.functions.borrow_mut();
@@ -201,22 +226,22 @@ fn declare_raw_fn(
         ty,
     });
 
-    &fns[idx]
+    Value::Function(idx)
 }
 
 impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn declare_global(
         &self,
-        name: &str, ty: &'ll Type
-    ) -> &'ll Value {
+        name: &str, ty: TypeIdx
+    ) -> Value {
         unimplemented!();
     }
 
     fn declare_cfn(
         &self,
         name: &str,
-        fn_type: &'ll Type
-    ) -> &'ll Function<'ll> {
+        fn_type: TypeIdx
+    ) -> Value {
         unimplemented!();
     }
 
@@ -224,23 +249,23 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         &self,
         name: &str,
         sig: PolyFnSig<'tcx>,
-    ) -> &'ll Function<'ll> {
+    ) -> Value {
         info!("declare_rust_fn(name={:?}, sig={:?})", name, sig);
         let sig = self.tcx.normalize_erasing_late_bound_regions(ty::ParamEnv::reveal_all(), &sig);
         info!("declare_rust_fn (after region erasure) sig={:?}", sig);
 
-        declare_raw_fn(self, name, &self.dummy_type)
+        declare_raw_fn(self, name, self.dummy_type_idx)
     }
 
     fn define_global(
         &self,
         name: &str,
-        ty: &'ll Type
-    ) -> Option<&'ll Value> {
+        ty: TypeIdx
+    ) -> Option<Value> {
         unimplemented!();
     }
 
-    fn define_private_global(&self, ty: &'ll Type) -> &'ll Value {
+    fn define_private_global(&self, ty: TypeIdx) -> Value {
         unimplemented!();
     }
 
@@ -248,7 +273,7 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         &self,
         name: &str,
         fn_sig: PolyFnSig<'tcx>,
-    ) -> &'ll Value {
+    ) -> Value {
         unimplemented!();
     }
 
@@ -256,15 +281,15 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         &self,
         name: &str,
         fn_sig: PolyFnSig<'tcx>,
-    ) -> &'ll Value {
+    ) -> Value {
         unimplemented!();
     }
 
-    fn get_declared_value(&self, name: &str) -> Option<&'ll Value> {
+    fn get_declared_value(&self, name: &str) -> Option<Value> {
         unimplemented!();
     }
 
-    fn get_defined_value(&self, name: &str) -> Option<&'ll Value> {
+    fn get_defined_value(&self, name: &str) -> Option<Value> {
         unimplemented!();
     }
 }
@@ -274,7 +299,7 @@ impl DebugInfoMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         &self,
         instance: Instance<'tcx>,
         sig: ty::FnSig<'tcx>,
-        llfn: &'ll Function<'ll>,
+        llfn: Value,
         mir: &mir::Body<'_>,
     ) -> Option<FunctionDebugContext<&'ll DIScope>> {
         unimplemented!();
@@ -337,10 +362,10 @@ impl ty::layout::HasParamEnv<'tcx> for SirCodegenCx<'ll, 'tcx> {
 impl StaticMethods for SirCodegenCx<'ll, 'tcx> {
     fn static_addr_of(
         &self,
-        cv: &'ll Value,
+        cv: Value,
         align: Align,
         kind: Option<&str>,
-    ) -> &'ll Value {
+    ) -> Value {
         unimplemented!();
     }
 
@@ -355,24 +380,24 @@ impl StaticMethods for SirCodegenCx<'ll, 'tcx> {
 
 impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn vtables(&self) -> &RefCell<FxHashMap<(Ty<'tcx>,
-                                Option<ty::PolyExistentialTraitRef<'tcx>>), &'ll Value>>
+                                Option<ty::PolyExistentialTraitRef<'tcx>>), Value>>
     {
         unimplemented!();
     }
 
-    fn get_fn(&self, instance: Instance<'tcx>) -> &'ll Function<'ll> {
+    fn get_fn(&self, instance: Instance<'tcx>) -> Value {
         unimplemented!();
     }
 
-    fn get_fn_addr(&self, instance: Instance<'tcx>) -> &'ll Value {
+    fn get_fn_addr(&self, instance: Instance<'tcx>) -> Value {
         unimplemented!();
     }
 
-    fn eh_personality(&self) -> &'ll Value {
+    fn eh_personality(&self) -> Value {
         unimplemented!();
     }
 
-    fn eh_unwind_resume(&self) -> &'ll Value {
+    fn eh_unwind_resume(&self) -> Value {
         unimplemented!();
     }
 
@@ -388,15 +413,15 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         unimplemented!();
     }
 
-    fn used_statics(&self) -> &RefCell<Vec<&'ll Value>> {
+    fn used_statics(&self) -> &RefCell<Vec<Value>> {
         unimplemented!();
     }
 
-    fn set_frame_pointer_elimination(&self, llfn: &'ll Function<'ll>) {
+    fn set_frame_pointer_elimination(&self, llfn: Value) {
         unimplemented!();
     }
 
-    fn apply_target_cpu_attr(&self, llfn: &'ll Function<'ll>) {
+    fn apply_target_cpu_attr(&self, llfn: Value) {
         unimplemented!();
     }
 
@@ -406,83 +431,83 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
 }
 
 impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
-    fn type_i1(&self) -> &'ll Type {
+    fn type_i1(&self) -> TypeIdx {
         unimplemented!();
     }
 
-    fn type_i8(&self) -> &'ll Type {
+    fn type_i8(&self) -> TypeIdx {
         unimplemented!();
     }
 
-    fn type_i16(&self) -> &'ll Type {
+    fn type_i16(&self) -> TypeIdx {
         unimplemented!();
     }
 
-    fn type_i32(&self) -> &'ll Type {
+    fn type_i32(&self) -> TypeIdx {
         unimplemented!();
     }
 
-    fn type_i64(&self) -> &'ll Type {
+    fn type_i64(&self) -> TypeIdx {
         unimplemented!();
     }
 
-    fn type_i128(&self) -> &'ll Type {
+    fn type_i128(&self) -> TypeIdx {
         unimplemented!();
     }
 
-    fn type_isize(&self) -> &'ll Type {
+    fn type_isize(&self) -> TypeIdx {
         unimplemented!();
     }
 
-    fn type_f32(&self) -> &'ll Type {
+    fn type_f32(&self) -> TypeIdx {
         unimplemented!();
     }
 
-    fn type_f64(&self) -> &'ll Type {
+    fn type_f64(&self) -> TypeIdx {
         unimplemented!();
     }
 
     fn type_func(
         &self,
-        args: &[&'ll Type],
-        ret: &'ll Type
-    ) -> &'ll Type {
+        args: &[TypeIdx],
+        ret: TypeIdx
+    ) -> TypeIdx {
         unimplemented!();
     }
 
     fn type_struct(
         &self,
-        els: &[&'ll Type],
+        els: &[TypeIdx],
         packed: bool
-    ) -> &'ll Type {
+    ) -> TypeIdx {
         unimplemented!();
     }
 
-    fn type_kind(&self, ty: &'ll Type) -> common::TypeKind {
+    fn type_kind(&self, ty: TypeIdx) -> common::TypeKind {
         unimplemented!();
     }
 
-    fn type_ptr_to(&self, ty: &'ll Type) -> &'ll Type {
+    fn type_ptr_to(&self, ty: TypeIdx) -> TypeIdx {
         unimplemented!();
     }
 
-    fn element_type(&self, ty: &'ll Type) -> &'ll Type {
+    fn element_type(&self, ty: TypeIdx) -> TypeIdx {
         unimplemented!();
     }
 
-    fn vector_length(&self, ty: &'ll Type) -> usize {
+    fn vector_length(&self, ty: TypeIdx) -> usize {
         unimplemented!();
     }
 
-    fn float_width(&self, ty: &'ll Type) -> usize {
+    fn float_width(&self, ty: TypeIdx) -> usize {
         unimplemented!();
     }
 
-    fn int_width(&self, ty: &'ll Type) -> u64 {
+    fn int_width(&self, ty: TypeIdx) -> u64 {
         unimplemented!();
     }
 
-    fn val_ty(&self, v: &'ll Value) -> &'ll Type {
+    fn val_ty(&self, v: Value) -> TypeIdx {
         unimplemented!();
     }
 }
@@ -493,12 +518,13 @@ impl HasTargetSpec for SirCodegenCx<'ll, 'tcx> {
     }
 }
 
+// FIXME these should all be index types?
 impl BackendTypes for SirCodegenCx<'ll, 'tcx> {
-    type Value = &'ll Value;
-    type Function = &'ll Function<'ll>;
-    type BasicBlock = &'ll BasicBlock;
-    type Type = &'ll Type;
-    type Funclet = &'ll Funclet;
+    type Value = Value;
+    type Function = Value;
+    type BasicBlock = BasicBlock;
+    type Type = TypeIdx;
+    type Funclet = Funclet;
     type DIScope = &'ll DIScope;
     type DISubprogram = &'ll DISubprogram;
 }
@@ -530,11 +556,11 @@ impl LayoutOf for SirCodegenCx<'ll, 'tcx> {
 
 
 impl LayoutTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
-    fn backend_type(&self, layout: TyLayout<'tcx>) -> &'ll Type {
+    fn backend_type(&self, layout: TyLayout<'tcx>) -> TypeIdx {
         unimplemented!();
     }
 
-    fn immediate_backend_type(&self, layout: TyLayout<'tcx>) -> &'ll Type {
+    fn immediate_backend_type(&self, layout: TyLayout<'tcx>) -> TypeIdx {
         unimplemented!();
     }
 
@@ -555,29 +581,29 @@ impl LayoutTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         layout: TyLayout<'tcx>,
         index: usize,
         immediate: bool
-    ) -> &'ll Type {
+    ) -> TypeIdx {
         unimplemented!();
     }
 
-    fn cast_backend_type(&self, ty: &CastTarget) -> &'ll Type {
+    fn cast_backend_type(&self, ty: &CastTarget) -> TypeIdx {
         unimplemented!();
     }
 
-    fn fn_ptr_backend_type(&self, fn_abi: &FnAbi<'tcx, Ty<'tcx>>) -> &'ll Type {
+    fn fn_ptr_backend_type(&self, fn_abi: &FnAbi<'tcx, Ty<'tcx>>) -> TypeIdx {
         unimplemented!();
     }
 
-    fn reg_backend_type(&self, ty: &Reg) -> &'ll Type {
+    fn reg_backend_type(&self, ty: &Reg) -> TypeIdx {
         unimplemented!();
     }
 }
 
 #[must_use]
-pub struct SirBuilder<'a, 'tcx, 'll> {
+pub struct SirBuilder<'a, 'll, 'tcx> {
     cx: &'a SirCodegenCx<'ll, 'tcx>,
 }
 
-impl LayoutOf for SirBuilder<'a, 'tcx, 'll> {
+impl LayoutOf for SirBuilder<'a, 'll, 'tcx> {
     type Ty = Ty<'tcx>;
     type TyLayout = TyLayout<'tcx>;
 
@@ -590,19 +616,19 @@ impl LayoutOf for SirBuilder<'a, 'tcx, 'll> {
     }
 }
 
-impl ty::layout::HasDataLayout for SirBuilder<'a, 'tcx, 'll> {
+impl ty::layout::HasDataLayout for SirBuilder<'a, 'll, 'tcx> {
     fn data_layout(&self) -> &ty::layout::TargetDataLayout {
         unimplemented!();
     }
 }
 
-impl ty::layout::HasTyCtxt<'tcx> for SirBuilder<'a, 'tcx, 'll> {
+impl ty::layout::HasTyCtxt<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn tcx(&self) -> TyCtxt<'tcx> {
         self.cx.tcx
     }
 }
 
-impl Deref for SirBuilder<'a, 'tcx, 'll> {
+impl Deref for SirBuilder<'a, 'll, 'tcx> {
     type Target = SirCodegenCx<'ll, 'tcx>;
 
     fn deref(&self) -> &Self::Target {
@@ -610,31 +636,31 @@ impl Deref for SirBuilder<'a, 'tcx, 'll> {
     }
 }
 
-impl HasTargetSpec for SirBuilder<'a, 'tcx, 'll> {
+impl HasTargetSpec for SirBuilder<'a, 'll, 'tcx> {
     fn target_spec(&self) -> &Target {
         unimplemented!();
     }
 }
 
-impl StaticBuilderMethods for SirBuilder<'a, 'tcx, 'll> {
-    fn get_static(&mut self, def_id: DefId) -> &'ll Value {
+impl StaticBuilderMethods for SirBuilder<'a, 'll, 'tcx> {
+    fn get_static(&mut self, def_id: DefId) -> Value {
         unimplemented!();
     }
 }
 
-impl AsmBuilderMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
+impl AsmBuilderMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn codegen_inline_asm(
         &mut self,
         ia: &hir::InlineAsm,
-        outputs: Vec<PlaceRef<'tcx, &'ll Value>>,
-        mut _inputs: Vec<&'ll Value>,
+        outputs: Vec<PlaceRef<'tcx, Value>>,
+        mut _inputs: Vec<Value>,
         span: Span,
     ) -> bool {
         unimplemented!();
     }
 }
 
-impl AbiBuilderMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
+impl AbiBuilderMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn apply_attrs_callsite(
         &mut self,
         fn_abi: &FnAbi<'tcx, Ty<'tcx>>,
@@ -648,7 +674,7 @@ impl AbiBuilderMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
     }
 }
 
-impl DebugInfoBuilderMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
+impl DebugInfoBuilderMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn declare_local(
         &mut self,
         dbg_context: &FunctionDebugContext<&'ll DIScope>,
@@ -677,19 +703,19 @@ impl DebugInfoBuilderMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
         unimplemented!();
     }
 
-    fn set_var_name(&mut self, value: &'ll Value, name: &str) {
+    fn set_var_name(&mut self, value: Value, name: &str) {
         unimplemented!();
     }
 }
 
 
-impl IntrinsicCallMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
+impl IntrinsicCallMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn codegen_intrinsic_call(
         &mut self,
         instance: ty::Instance<'tcx>,
         fn_abi: &FnAbi<'tcx, Ty<'tcx>>,
-        args: &[OperandRef<'tcx, &'ll Value>],
-        llresult: &'ll Value,
+        args: &[OperandRef<'tcx, Value>],
+        llresult: Value,
         span: Span,
     ) {
         unimplemented!();
@@ -711,26 +737,26 @@ impl IntrinsicCallMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
         unimplemented!();
     }
 
-    fn va_start(&mut self, va_list: &'ll Value) -> &'ll Value {
+    fn va_start(&mut self, va_list: Value) -> Value {
         unimplemented!();
     }
 
-    fn va_end(&mut self, va_list: &'ll Value) -> &'ll Value {
+    fn va_end(&mut self, va_list: Value) -> Value {
         unimplemented!();
     }
 }
 
-impl HasCodegen<'tcx> for SirBuilder<'a, 'tcx, 'll> {
+impl HasCodegen<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     type CodegenCx = SirCodegenCx<'ll, 'tcx>;
 }
 
-impl ty::layout::HasParamEnv<'tcx> for SirBuilder<'a, 'tcx, 'll> {
+impl ty::layout::HasParamEnv<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn param_env(&self) -> ty::ParamEnv<'tcx> {
         unimplemented!();
     }
 }
 
-impl ArgAbiMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
+impl ArgAbiMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn store_fn_arg(
         &mut self,
         arg_abi: &ArgAbi<'tcx, Ty<'tcx>>,
@@ -742,18 +768,18 @@ impl ArgAbiMethods<'tcx> for SirBuilder<'a, 'tcx, 'll> {
     fn store_arg(
         &mut self,
         arg_abi: &ArgAbi<'tcx, Ty<'tcx>>,
-        val: &'ll Value,
-        dst: PlaceRef<'tcx, &'ll Value>
+        val: Value,
+        dst: PlaceRef<'tcx, Value>
     ) {
         unimplemented!();
     }
 
-    fn arg_memory_ty(&self, arg_abi: &ArgAbi<'tcx, Ty<'tcx>>) -> &'ll Type {
+    fn arg_memory_ty(&self, arg_abi: &ArgAbi<'tcx, Ty<'tcx>>) -> TypeIdx {
         unimplemented!();
     }
 }
 
-impl BackendTypes for SirBuilder<'a, 'tcx, 'll> {
+impl BackendTypes for SirBuilder<'a, 'll, 'tcx> {
     type Value = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::Value;
     type Function = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::Function;
     type BasicBlock = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::BasicBlock;
@@ -763,7 +789,7 @@ impl BackendTypes for SirBuilder<'a, 'tcx, 'll> {
     type DISubprogram = <SirCodegenCx<'ll, 'tcx> as BackendTypes>::DISubprogram;
 }
 
-impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'tcx, 'll> {
+impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn new_block<'b>(cx: &'a Self::CodegenCx, llfn: Self::Function, name: &'b str) -> Self {
         unimplemented!();
     }
