@@ -50,6 +50,12 @@ newtype_index! {
     }
 }
 
+newtype_index! {
+    pub struct GlobalIdx {
+        DEBUG_FORMAT = "GlobalIdx[{}]"
+    }
+}
+
 #[allow(dead_code)]
 struct DILexicalBlock {}
 
@@ -57,7 +63,8 @@ struct DILexicalBlock {}
 /// Each is an index into the corresponding vector in SirCodegenCx.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Value {
-    Function(usize),
+    Function(FunctionIdx),
+    Global(GlobalIdx),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -65,6 +72,12 @@ pub struct Type {}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Function {
+    name: String,
+    ty: TypeIdx,
+}
+
+#[allow(dead_code)]
+pub struct Global {
     name: String,
     ty: TypeIdx,
 }
@@ -84,6 +97,7 @@ pub struct DISubprogram {}
 pub struct SirCodegenCx<'ll, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub codegen_unit: Arc<CodegenUnit<'tcx>>,
+
     pub functions: RefCell<IndexVec<FunctionIdx, Function>>,
 
     // FIXME Needed?
@@ -91,6 +105,9 @@ pub struct SirCodegenCx<'ll, 'tcx> {
 
     pub types: IndexVec<TypeIdx, Type>,
     pub dummy_type_idx: TypeIdx,
+
+    pub globals: RefCell<IndexVec<GlobalIdx, Global>>,
+    pub globals_cache: RefCell<FxHashMap<String, GlobalIdx>>,
 
     // FIXME: almost certain this lifetime will crop up later.
     pd: PhantomData<&'ll ()>,
@@ -108,6 +125,8 @@ impl SirCodegenCx<'ll, 'tcx> {
             instances: RefCell::new(FxHashMap::default()),
             types: IndexVec::from_elem_n(Type{}, 1),
             dummy_type_idx: TypeIdx::from_usize(0),
+            globals: RefCell::new(IndexVec::default()),
+            globals_cache: RefCell::new(FxHashMap::default()),
             pd: PhantomData,
         }
     }
@@ -226,7 +245,7 @@ fn declare_raw_fn(
         ty,
     });
 
-    Value::Function(idx)
+    Value::Function(FunctionIdx::from_usize(idx))
 }
 
 impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
@@ -234,7 +253,16 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         &self,
         name: &str, ty: TypeIdx
     ) -> Value {
-        unimplemented!();
+        info!("declare_global(name={:?})", name);
+        let mut globals = self.globals.borrow_mut();
+
+        let idx = globals.len();
+        globals.push(Global {
+            name: name.to_owned(),
+            ty
+        });
+
+        Value::Global(GlobalIdx::from_usize(idx))
     }
 
     fn declare_cfn(
@@ -262,7 +290,11 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         name: &str,
         ty: TypeIdx
     ) -> Option<Value> {
-        unimplemented!();
+        if self.get_defined_value(name).is_some() {
+            None
+        } else {
+            Some(self.declare_global(name, ty))
+        }
     }
 
     fn define_private_global(&self, ty: TypeIdx) -> Value {
@@ -286,11 +318,15 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn get_declared_value(&self, name: &str) -> Option<Value> {
-        unimplemented!();
+        if let Some(idx) = self.globals_cache.borrow().get(name) {
+            Some(Value::Global(*idx))
+        } else {
+            None
+        }
     }
 
     fn get_defined_value(&self, name: &str) -> Option<Value> {
-        unimplemented!();
+        self.get_declared_value(name)
     }
 }
 
@@ -337,7 +373,14 @@ impl PreDefineMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
                                   linkage: Linkage,
                                   visibility: Visibility,
                                   symbol_name: &str) {
-        unimplemented!();
+        let instance = Instance::mono(self.tcx, def_id);
+        // FIXME layout.
+        let g = self.define_global(symbol_name, self.dummy_type_idx).unwrap_or_else(|| {
+            self.sess().span_fatal(self.tcx.def_span(def_id),
+                &format!("symbol `{}` is already defined", symbol_name))
+        });
+
+        self.instances.borrow_mut().insert(instance, g);
     }
 
     fn predefine_fn(&self,
@@ -348,7 +391,7 @@ impl PreDefineMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         let mono_sig = instance.fn_sig(self.tcx);
         let lldecl = self.declare_fn(symbol_name, mono_sig);
 
-        debug!("predefine_fn: mono_sig = {:?} instance = {:?}", mono_sig, instance);
+        info!("predefine_fn: mono_sig = {:?} instance = {:?}", mono_sig, instance);
         self.instances.borrow_mut().insert(instance, lldecl);
     }
 }
