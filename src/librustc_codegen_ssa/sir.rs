@@ -86,7 +86,7 @@ impl BasicBlockPath {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct InstructionPath {
-    pub function_idx: FunctionIdx,
+    pub func_idx: FunctionIdx,
     pub block_idx: BasicBlockIdx,
     pub instr_idx: InstructionIdx,
 }
@@ -94,7 +94,7 @@ pub struct InstructionPath {
 impl Default for InstructionPath {
     fn default() -> Self {
         Self {
-            function_idx: FunctionIdx::from_usize(0),
+            func_idx: FunctionIdx::from_usize(0),
             block_idx: BasicBlockIdx::from_usize(0),
             instr_idx: InstructionIdx::from_usize(0),
         }
@@ -102,11 +102,11 @@ impl Default for InstructionPath {
 }
 
 //impl InstructionPath {
-//    fn new(function_idx: FunctionIdx,
+//    fn new(func_idx: FunctionIdx,
 //           block_idx: BasicBlockIdx,
 //           instr_idx: InstructionIdx) -> Self
 //    {
-//        Self {function_idx, block_idx, instr_idx}
+//        Self {func_idx, block_idx, instr_idx}
 //    }
 //}
 
@@ -123,7 +123,11 @@ pub enum Value {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-struct Instrucition {}
+enum Instruction {
+    /// An unimplemented part of the SIR codegen.
+    /// The string inside should give some kind of indication where to look.
+    Unimplemented(&'static str),
+}
 
 impl Value {
     fn unwrap_function(&self) -> FunctionIdx {
@@ -178,7 +182,7 @@ pub struct Global {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BasicBlock {
-    instrs: IndexVec<InstructionIdx, Instrucition>,
+    instrs: IndexVec<InstructionIdx, Instruction>,
     parent: FunctionIdx,
 }
 
@@ -769,6 +773,26 @@ pub struct SirBuilder<'a, 'll, 'tcx> {
     insertion_point: InstructionPath,
 }
 
+impl SirBuilder<'a, 'll, 'tcx> {
+    fn emit_instr(&mut self, instr: Instruction) -> Value {
+        let ip = self.insertion_point;
+
+        {
+            let func = &mut self.functions.borrow_mut()[ip.func_idx];
+            let block = &mut func.blocks[ip.block_idx];
+            block.instrs.insert(ip.instr_idx, instr);
+        }
+
+        let instr_path = self.insertion_point;
+        self.insertion_point.block_idx.increment_by(1);
+        Value::Instruction(instr_path)
+    }
+
+    fn unimplemented(&mut self, msg: &'static str) -> Value {
+        self.emit_instr(Instruction::Unimplemented(msg))
+    }
+}
+
 impl LayoutOf for SirBuilder<'a, 'll, 'tcx> {
     type Ty = Ty<'tcx>;
     type TyLayout = TyLayout<'tcx>;
@@ -884,31 +908,31 @@ impl IntrinsicCallMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
         llresult: Value,
         span: Span,
     ) {
-        unimplemented!();
+        self.unimplemented("IntrinsicCallMethods::codegen_intrinsic_call");
     }
 
     fn abort(&mut self) {
-        unimplemented!();
+        self.unimplemented("IntrinsicCallMethods::abort");
     }
 
     fn assume(&mut self, val: Self::Value) {
-        unimplemented!();
+        self.unimplemented("IntrinsicCallMethods::assume");
     }
 
     fn expect(&mut self, cond: Self::Value, expected: bool) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("IntrinsicCallMethods::expect")
     }
 
     fn sideeffect(&mut self) {
-        unimplemented!();
+        self.unimplemented("IntrinsicCallMethods::sideeffect");
     }
 
     fn va_start(&mut self, va_list: Value) -> Value {
-        unimplemented!();
+        self.unimplemented("IntrinsicCallMethods::va_start")
     }
 
     fn va_end(&mut self, va_list: Value) -> Value {
-        unimplemented!();
+        self.unimplemented("IntrinsicCallMethods::va_end")
     }
 }
 
@@ -1012,7 +1036,7 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
             funcs[llbb.func_idx].blocks[llbb.block_idx].instrs.len()
         };
 
-        self.insertion_point.function_idx = llbb.func_idx;
+        self.insertion_point.func_idx = llbb.func_idx;
         self.insertion_point.block_idx = llbb.block_idx;
         self.insertion_point.instr_idx = InstructionIdx::from_usize(instr_idx);
     }

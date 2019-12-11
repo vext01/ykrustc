@@ -573,6 +573,11 @@ impl<I: Idx, T> IndexVec<I, T> {
     }
 
     #[inline]
+    pub fn insert(&mut self, i: I, d: T) {
+        self.raw.insert(i.index(), d);
+    }
+
+    #[inline]
     pub fn pop(&mut self) -> Option<T> {
         self.raw.pop()
     }
