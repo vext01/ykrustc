@@ -1,18 +1,18 @@
 //! FIXME
 
-// FIXME jsut for now, or I will go mad.
+// FIXME just for now, or I will go mad.
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
 use rustc_index::{newtype_index, vec::{Idx, IndexVec}};
 use syntax::symbol::Symbol;
-use syntax::source_map::Span;
+use syntax::source_map::{DUMMY_SP, Span};
 use syntax::ast;
 use crate::mir::debuginfo::VariableKind;
 use rustc::mir::interpret::{Scalar, Allocation};
 use std::ops::Deref;
 use std::marker::PhantomData;
-use crate::mir::debuginfo::{FunctionDebugContext};
+use crate::mir::debuginfo::FunctionDebugContext;
 use rustc::hir::def_id::CrateNum;
 use rustc::hir;
 use rustc::mir;
@@ -26,8 +26,7 @@ use crate::common::{self, IntPredicate, RealPredicate, AtomicOrdering, AtomicRmw
                     SynchronizationScope};
 use crate::MemFlags;
 use rustc::ty::{self, Ty, TyCtxt, Instance, PolyFnSig};
-use rustc::ty::layout::{self, Align, Size, TyLayout};
-use rustc::ty::layout::LayoutOf;
+use rustc::ty::layout::{self, Align, Size, TyLayout, LayoutError, LayoutOf};
 use rustc::hir::def_id::DefId;
 use crate::traits::*;
 use crate::mir::operand::OperandRef;
@@ -45,6 +44,12 @@ newtype_index! {
 }
 
 newtype_index! {
+    pub struct InstructionIdx {
+        DEBUG_FORMAT = "InstructionIdx[{}]"
+    }
+}
+
+newtype_index! {
     pub struct TypeIdx {
         DEBUG_FORMAT = "TypeIdx[{}]"
     }
@@ -56,6 +61,55 @@ newtype_index! {
     }
 }
 
+newtype_index! {
+    /// Identifies a basic block local to a function.
+    pub struct BasicBlockIdx {
+        DEBUG_FORMAT = "BasicBlockIdx[{}]"
+    }
+}
+
+/// Globally identifies a basic block.
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct BasicBlockPath {
+    func_idx: FunctionIdx,
+    block_idx: BasicBlockIdx,
+}
+
+impl BasicBlockPath {
+    fn new(func_idx: FunctionIdx, block_idx: BasicBlockIdx) -> Self {
+        Self {
+            func_idx,
+            block_idx,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct InstructionPath {
+    pub function_idx: FunctionIdx,
+    pub block_idx: BasicBlockIdx,
+    pub instr_idx: InstructionIdx,
+}
+
+impl Default for InstructionPath {
+    fn default() -> Self {
+        Self {
+            function_idx: FunctionIdx::from_usize(0),
+            block_idx: BasicBlockIdx::from_usize(0),
+            instr_idx: InstructionIdx::from_usize(0),
+        }
+    }
+}
+
+//impl InstructionPath {
+//    fn new(function_idx: FunctionIdx,
+//           block_idx: BasicBlockIdx,
+//           instr_idx: InstructionIdx) -> Self
+//    {
+//        Self {function_idx, block_idx, instr_idx}
+//    }
+//}
+
 #[allow(dead_code)]
 struct DILexicalBlock {}
 
@@ -65,6 +119,37 @@ struct DILexicalBlock {}
 pub enum Value {
     Function(FunctionIdx),
     Global(GlobalIdx),
+    Instruction(InstructionPath),
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+struct Instrucition {}
+
+impl Value {
+    fn unwrap_function(&self) -> FunctionIdx {
+        if let Self::Function(idx) = self {
+            *idx
+        } else {
+            panic!("Failed to unwrap a Value::Function");
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unwrap_global(&self) -> GlobalIdx {
+        if let Self::Global(idx) = self {
+            *idx
+        } else {
+            panic!("Failed to unwrap a Value::Global");
+        }
+    }
+
+    fn unwrap_instr(&self) -> InstructionPath {
+        if let Self::Instruction(path) = self {
+            *path
+        } else {
+            panic!("Failed to unwrap a Value::Instruction");
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -74,6 +159,15 @@ pub struct Type {}
 pub struct Function {
     name: String,
     ty: TypeIdx,
+    blocks: IndexVec<BasicBlockIdx, BasicBlock>,
+}
+
+impl Function {
+    fn add_block(&mut self, parent: FunctionIdx) -> BasicBlockIdx {
+        let idx = self.blocks.len();
+        self.blocks.push(BasicBlock::new(parent));
+        BasicBlockIdx::from_usize(idx)
+    }
 }
 
 #[allow(dead_code)]
@@ -82,8 +176,20 @@ pub struct Global {
     ty: TypeIdx,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct BasicBlock {}
+#[derive(Debug, Clone, PartialEq)]
+pub struct BasicBlock {
+    instrs: IndexVec<InstructionIdx, Instrucition>,
+    parent: FunctionIdx,
+}
+
+impl BasicBlock {
+    pub fn new(parent: FunctionIdx) -> Self {
+        Self {
+            instrs: IndexVec::default(),
+            parent,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Funclet {}
@@ -243,6 +349,7 @@ fn declare_raw_fn(
     fns.push(Function {
         name: name.to_owned(),
         ty,
+        blocks: IndexVec::default(),
     });
 
     Value::Function(FunctionIdx::from_usize(idx))
@@ -338,7 +445,7 @@ impl DebugInfoMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         llfn: Value,
         mir: &mir::Body<'_>,
     ) -> Option<FunctionDebugContext<&'ll DIScope>> {
-        unimplemented!();
+        None
     }
 
     fn create_vtable_metadata(
@@ -398,7 +505,7 @@ impl PreDefineMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
 
 impl ty::layout::HasParamEnv<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn param_env(&self) -> ty::ParamEnv<'tcx> {
-        unimplemented!();
+        ty::ParamEnv::reveal_all()
     }
 }
 
@@ -429,7 +536,18 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn get_fn(&self, instance: Instance<'tcx>) -> Value {
-        unimplemented!();
+        // FIXME: do we need the pointer casting logic from the LLVM backend?
+        let sym = self.tcx.symbol_name(instance).name.as_str();
+        let sig = instance.fn_sig(self.tcx);
+        info!("get_fn({:?}: {:?}) => {}", instance, sig, sym);
+
+        if let Some(ref llfn) = self.instances.borrow().get(&instance) {
+            **llfn
+        } else {
+            let llfn = self.declare_fn(&sym, sig);
+            self.instances.borrow_mut().insert(instance, llfn);
+            llfn
+        }
     }
 
     fn get_fn_addr(&self, instance: Instance<'tcx>) -> Value {
@@ -561,11 +679,10 @@ impl HasTargetSpec for SirCodegenCx<'ll, 'tcx> {
     }
 }
 
-// FIXME these should all be index types?
 impl BackendTypes for SirCodegenCx<'ll, 'tcx> {
     type Value = Value;
     type Function = Value;
-    type BasicBlock = BasicBlock;
+    type BasicBlock = BasicBlockPath;
     type Type = TypeIdx;
     type Funclet = Funclet;
     type DIScope = &'ll DIScope;
@@ -589,11 +706,16 @@ impl LayoutOf for SirCodegenCx<'ll, 'tcx> {
     type TyLayout = TyLayout<'tcx>;
 
     fn layout_of(&self, ty: Ty<'tcx>) -> Self::TyLayout {
-        unimplemented!();
+        self.spanned_layout_of(ty, DUMMY_SP)
     }
 
     fn spanned_layout_of(&self, ty: Ty<'tcx>, span: Span) -> Self::TyLayout {
-        unimplemented!();
+        self.tcx.layout_of(ty::ParamEnv::reveal_all().and(ty))
+            .unwrap_or_else(|e| if let LayoutError::SizeOverflow(_) = e {
+                self.sess().span_fatal(span, &e.to_string())
+            } else {
+                bug!("failed to get layout for `{}`: {}", ty, e)
+            })
     }
 }
 
@@ -644,6 +766,7 @@ impl LayoutTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
 #[must_use]
 pub struct SirBuilder<'a, 'll, 'tcx> {
     cx: &'a SirCodegenCx<'ll, 'tcx>,
+    insertion_point: InstructionPath,
 }
 
 impl LayoutOf for SirBuilder<'a, 'll, 'tcx> {
@@ -675,7 +798,7 @@ impl Deref for SirBuilder<'a, 'll, 'tcx> {
     type Target = SirCodegenCx<'ll, 'tcx>;
 
     fn deref(&self) -> &Self::Target {
-        unimplemented!();
+        self.cx
     }
 }
 
@@ -834,11 +957,25 @@ impl BackendTypes for SirBuilder<'a, 'll, 'tcx> {
 
 impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn new_block<'b>(cx: &'a Self::CodegenCx, llfn: Self::Function, name: &'b str) -> Self {
-        unimplemented!();
+        let mut bx = SirBuilder::with_cx(cx);
+        let fn_idx = llfn.unwrap_function();
+
+        let block_path = {
+            let mut fns = cx.functions.borrow_mut();
+            let func = &mut fns[fn_idx];
+            let block_idx = func.add_block(fn_idx);
+            BasicBlockPath::new(llfn.unwrap_function(), block_idx)
+        };
+
+        bx.position_at_end(block_path);
+        bx
     }
 
     fn with_cx(cx: &'a Self::CodegenCx) -> Self {
-        Self { cx }
+        Self {
+            cx,
+            insertion_point: InstructionPath::default(),
+        }
     }
 
     fn build_sibling_block(&self, name: &str) -> Self {
@@ -858,19 +995,26 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
     }
 
     fn add_yk_block_label(&mut self, di_sp: Self::DIScope, lbl_name: CString) {
-        unimplemented!();
+        // Purposely blank.
     }
 
     fn add_yk_block_label_at_end(&mut self, di_sp: Self::DIScope, lbl_name: CString) {
-        unimplemented!();
+        // Purposely blank.
     }
 
     fn position_before(&mut self, instr: Self::Value) {
-        unimplemented!();
+        self.insertion_point = instr.unwrap_instr();
     }
 
     fn position_at_end(&mut self, llbb: Self::BasicBlock) {
-        unimplemented!();
+        let instr_idx = {
+            let funcs = self.functions.borrow();
+            funcs[llbb.func_idx].blocks[llbb.block_idx].instrs.len()
+        };
+
+        self.insertion_point.function_idx = llbb.func_idx;
+        self.insertion_point.block_idx = llbb.block_idx;
+        self.insertion_point.instr_idx = InstructionIdx::from_usize(instr_idx);
     }
 
     fn ret_void(&mut self) {
