@@ -29,7 +29,7 @@ use rustc::ty::{self, Ty, TyCtxt, Instance, PolyFnSig};
 use rustc::ty::layout::{self, Align, Size, TyLayout, LayoutError, LayoutOf};
 use rustc::hir::def_id::DefId;
 use crate::traits::*;
-use crate::mir::operand::OperandRef;
+use crate::mir::operand::{OperandRef, OperandValue};
 use crate::mir::place::PlaceRef;
 use rustc_target::spec::{HasTargetSpec, Target};
 use rustc_target::abi::call::{ArgAbi, FnAbi, CastTarget, Reg};
@@ -120,6 +120,9 @@ pub enum Value {
     Function(FunctionIdx),
     Global(GlobalIdx),
     Instruction(InstructionPath),
+    ConstUndef(TypeIdx),
+    /// Unimplemented instructions currently return this.
+    Dummy,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -254,7 +257,7 @@ impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn const_undef(&self, t: TypeIdx) -> Value {
-        unimplemented!();
+	Value::ConstUndef(t)
     }
 
     fn const_int(&self, t: TypeIdx, i: i64) -> Value {
@@ -345,10 +348,10 @@ fn declare_raw_fn(
     name: &str,
     ty: TypeIdx,
 ) -> Value {
-    info!("declare_raw_fn(name={:?}, ty={:?})", name, ty);
     // FIXME calling convention and ABI stuff?
     let mut fns = cx.functions.borrow_mut();
     let idx = fns.len();
+    info!("declare_raw_fn: name={:?}, idx={:?}, ty={:?}", name, idx, ty);
 
     fns.push(Function {
         name: name.to_owned(),
@@ -381,7 +384,7 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         name: &str,
         fn_type: TypeIdx
     ) -> Value {
-        unimplemented!();
+        declare_raw_fn(self, name, fn_type)
     }
 
     fn declare_fn(
@@ -555,7 +558,7 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn get_fn_addr(&self, instance: Instance<'tcx>) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn eh_personality(&self) -> Value {
@@ -567,7 +570,7 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn sess(&self) -> &Session {
-        unimplemented!();
+	self.tcx.sess
     }
 
     fn check_overflow(&self) -> bool {
@@ -597,39 +600,39 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
 
 impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn type_i1(&self) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_i8(&self) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_i16(&self) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_i32(&self) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_i64(&self) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_i128(&self) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_isize(&self) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_f32(&self) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_f64(&self) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_func(
@@ -637,7 +640,7 @@ impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         args: &[TypeIdx],
         ret: TypeIdx
     ) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_struct(
@@ -645,7 +648,7 @@ impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         els: &[TypeIdx],
         packed: bool
     ) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn type_kind(&self, ty: TypeIdx) -> common::TypeKind {
@@ -653,11 +656,11 @@ impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn type_ptr_to(&self, ty: TypeIdx) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn element_type(&self, ty: TypeIdx) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 
     fn vector_length(&self, ty: TypeIdx) -> usize {
@@ -673,7 +676,7 @@ impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn val_ty(&self, v: Value) -> TypeIdx {
-        unimplemented!();
+        TypeIdx::from_usize(0) // FIXME
     }
 }
 
@@ -701,7 +704,7 @@ impl ty::layout::HasTyCtxt<'tcx> for SirCodegenCx<'ll, 'tcx> {
 
 impl ty::layout::HasDataLayout for SirCodegenCx<'ll, 'tcx> {
     fn data_layout(&self) -> &ty::layout::TargetDataLayout {
-        unimplemented!();
+        &self.tcx.data_layout
     }
 }
 
@@ -726,19 +729,31 @@ impl LayoutOf for SirCodegenCx<'ll, 'tcx> {
 
 impl LayoutTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn backend_type(&self, layout: TyLayout<'tcx>) -> TypeIdx {
-        unimplemented!();
+	TypeIdx::from_usize(0) // FIXME
     }
 
     fn immediate_backend_type(&self, layout: TyLayout<'tcx>) -> TypeIdx {
-        unimplemented!();
+	TypeIdx::from_usize(0) // FIXME
     }
 
-    fn is_backend_immediate(&self, layout: TyLayout<'tcx>) -> bool {
-        unimplemented!();
+    fn is_backend_immediate(&self, ty: TyLayout<'tcx>) -> bool {
+        match ty.abi {
+            layout::Abi::Scalar(_) |
+            layout::Abi::Vector { .. } => true,
+            layout::Abi::ScalarPair(..) => false,
+            layout::Abi::Uninhabited |
+            layout::Abi::Aggregate { .. } => ty.is_zst()
+        }
     }
 
-    fn is_backend_scalar_pair(&self, layout: TyLayout<'tcx>) -> bool {
-        unimplemented!();
+    fn is_backend_scalar_pair(&self, ty: TyLayout<'tcx>) -> bool {
+        match ty.abi {
+            layout::Abi::ScalarPair(..) => true,
+            layout::Abi::Uninhabited |
+            layout::Abi::Scalar(_) |
+            layout::Abi::Vector { .. } |
+            layout::Abi::Aggregate { .. } => false
+        }
     }
 
     fn backend_field_index(&self, layout: TyLayout<'tcx>, index: usize) -> u64 {
@@ -751,19 +766,19 @@ impl LayoutTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         index: usize,
         immediate: bool
     ) -> TypeIdx {
-        unimplemented!();
+	TypeIdx::from_usize(0) // FIXME
     }
 
     fn cast_backend_type(&self, ty: &CastTarget) -> TypeIdx {
-        unimplemented!();
+	TypeIdx::from_usize(0) // FIXME
     }
 
     fn fn_ptr_backend_type(&self, fn_abi: &FnAbi<'tcx, Ty<'tcx>>) -> TypeIdx {
-        unimplemented!();
+	TypeIdx::from_usize(0) // FIXME
     }
 
     fn reg_backend_type(&self, ty: &Reg) -> TypeIdx {
-        unimplemented!();
+	TypeIdx::from_usize(0) // FIXME
     }
 }
 
@@ -778,13 +793,16 @@ impl SirBuilder<'a, 'll, 'tcx> {
         let ip = self.insertion_point;
 
         {
+            info!("get func");
             let func = &mut self.functions.borrow_mut()[ip.func_idx];
+            info!("get block");
             let block = &mut func.blocks[ip.block_idx];
+            info!("insert");
             block.instrs.insert(ip.instr_idx, instr);
         }
 
         let instr_path = self.insertion_point;
-        self.insertion_point.block_idx.increment_by(1);
+        self.insertion_point.instr_idx.increment_by(1);
         Value::Instruction(instr_path)
     }
 
@@ -798,7 +816,7 @@ impl LayoutOf for SirBuilder<'a, 'll, 'tcx> {
     type TyLayout = TyLayout<'tcx>;
 
     fn layout_of(&self, ty: Ty<'tcx>) -> Self::TyLayout {
-        unimplemented!();
+        self.cx.layout_of(ty)
     }
 
     fn spanned_layout_of(&self, ty: Ty<'tcx>, span: Span) -> Self::TyLayout {
@@ -808,7 +826,7 @@ impl LayoutOf for SirBuilder<'a, 'll, 'tcx> {
 
 impl ty::layout::HasDataLayout for SirBuilder<'a, 'll, 'tcx> {
     fn data_layout(&self) -> &ty::layout::TargetDataLayout {
-        unimplemented!();
+        self.cx.data_layout()
     }
 }
 
@@ -860,7 +878,7 @@ impl AbiBuilderMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     }
 
     fn get_param(&self, index: usize) -> Self::Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 }
 
@@ -920,7 +938,8 @@ impl IntrinsicCallMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     }
 
     fn expect(&mut self, cond: Self::Value, expected: bool) -> Self::Value {
-        self.unimplemented("IntrinsicCallMethods::expect")
+        self.unimplemented("IntrinsicCallMethods::expect");
+        Value::Dummy
     }
 
     fn sideeffect(&mut self) {
@@ -928,11 +947,13 @@ impl IntrinsicCallMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     }
 
     fn va_start(&mut self, va_list: Value) -> Value {
-        self.unimplemented("IntrinsicCallMethods::va_start")
+        self.unimplemented("IntrinsicCallMethods::va_start");
+        Value::Dummy
     }
 
     fn va_end(&mut self, va_list: Value) -> Value {
-        self.unimplemented("IntrinsicCallMethods::va_end")
+        self.unimplemented("IntrinsicCallMethods::va_end");
+        Value::Dummy
     }
 }
 
@@ -983,11 +1004,13 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn new_block<'b>(cx: &'a Self::CodegenCx, llfn: Self::Function, name: &'b str) -> Self {
         let mut bx = SirBuilder::with_cx(cx);
         let fn_idx = llfn.unwrap_function();
+        info!("{:?}", fn_idx);
 
         let block_path = {
             let mut fns = cx.functions.borrow_mut();
             let func = &mut fns[fn_idx];
             let block_idx = func.add_block(fn_idx);
+            info!("SirBuilder::new_block: for={:?}, idx={:?}", llfn, block_idx);
             BasicBlockPath::new(llfn.unwrap_function(), block_idx)
         };
 
@@ -1003,15 +1026,18 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
     }
 
     fn build_sibling_block(&self, name: &str) -> Self {
-        unimplemented!();
+        SirBuilder::new_block(self.cx,
+            Value::Function(self.insertion_point.func_idx),
+            name)
     }
 
     fn cx(&self) -> &Self::CodegenCx {
-        unimplemented!();
+        self.cx
     }
 
     fn llbb(&self) -> Self::BasicBlock {
-        unimplemented!();
+        BasicBlockPath{func_idx: self.insertion_point.func_idx,
+                       block_idx: self.insertion_point.block_idx}
     }
 
     fn first_instruction(&mut self, llbb: Self::BasicBlock) -> Option<Self::Value> {
@@ -1031,26 +1057,30 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
     }
 
     fn position_at_end(&mut self, llbb: Self::BasicBlock) {
+        info!("position_at_end: before={:?}", llbb);
         let instr_idx = {
             let funcs = self.functions.borrow();
-            funcs[llbb.func_idx].blocks[llbb.block_idx].instrs.len()
+            let func = &funcs[llbb.func_idx];
+            let block = &func.blocks[llbb.block_idx];
+            block.instrs.len()
         };
 
         self.insertion_point.func_idx = llbb.func_idx;
         self.insertion_point.block_idx = llbb.block_idx;
         self.insertion_point.instr_idx = InstructionIdx::from_usize(instr_idx);
+        info!("position_at_end: after={:?}", self.insertion_point);
     }
 
     fn ret_void(&mut self) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::ret_void");
     }
 
     fn ret(&mut self, v: Self::Value) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::ret");
     }
 
     fn br(&mut self, dest: Self::BasicBlock) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::br");
     }
 
     fn cond_br(
@@ -1059,7 +1089,7 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         then_llbb: Self::BasicBlock,
         else_llbb: Self::BasicBlock,
     ) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::cond_br");
     }
 
     fn switch(
@@ -1068,7 +1098,7 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         else_llbb: Self::BasicBlock,
         cases: impl ExactSizeIterator<Item = (u128, Self::BasicBlock)> + TrustedLen,
     ) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::switch");
     }
 
     fn invoke(
@@ -1079,150 +1109,183 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         catch: Self::BasicBlock,
         funclet: Option<&Self::Funclet>,
     ) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::invoke");
+        Value::Dummy
     }
 
     fn unreachable(&mut self) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::unimplemented");
     }
 
-
     fn add(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::add");
+        Value::Dummy
     }
 
     fn fadd(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fadd");
+        Value::Dummy
     }
 
     fn fadd_fast(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fadd_fast");
+        Value::Dummy
     }
 
     fn sub(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::sub");
+        Value::Dummy
     }
 
     fn fsub(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fsub");
+        Value::Dummy
     }
 
     fn fsub_fast(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fsub_fast");
+        Value::Dummy
     }
 
     fn mul(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::mul");
+        Value::Dummy
     }
 
     fn fmul(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fmul");
+        Value::Dummy
     }
 
     fn fmul_fast(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fmul_fast");
+        Value::Dummy
     }
 
     fn udiv(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::udiv");
+        Value::Dummy
     }
 
     fn exactudiv(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::exactudiv");
+        Value::Dummy
     }
 
     fn sdiv(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::sdiv");
+        Value::Dummy
     }
 
     fn exactsdiv(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::exactsdiv");
+        Value::Dummy
     }
 
     fn fdiv(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fdiv");
+        Value::Dummy
     }
 
     fn fdiv_fast(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fdiv_fast");
+        Value::Dummy
     }
 
     fn urem(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::urem");
+        Value::Dummy
     }
 
     fn srem(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::srem");
+        Value::Dummy
     }
 
     fn frem(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::frem");
+        Value::Dummy
     }
 
     fn frem_fast(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::frem_fast");
+        Value::Dummy
     }
 
     fn shl(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::shl");
+        Value::Dummy
     }
 
     fn lshr(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::lshr");
+        Value::Dummy
     }
 
     fn ashr(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::ashr");
+        Value::Dummy
     }
 
     fn unchecked_sadd(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::unchecked_sadd");
+        Value::Dummy
     }
 
     fn unchecked_uadd(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::unchecked_uadd");
+        Value::Dummy
     }
 
     fn unchecked_ssub(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::unchecked_ssub");
+        Value::Dummy
     }
 
     fn unchecked_usub(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::unchecked_usub");
+        Value::Dummy
     }
 
     fn unchecked_smul(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::unchecked_smul");
+        Value::Dummy
     }
 
     fn unchecked_umul(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::unchecked_umul");
+        Value::Dummy
     }
 
     fn and(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::and");
+        Value::Dummy
     }
 
     fn or(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::or");
+        Value::Dummy
     }
 
     fn xor(&mut self, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::xor");
+        Value::Dummy
     }
 
     fn neg(&mut self, v: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::neg");
+        Value::Dummy
     }
 
     fn fneg(&mut self, v: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fneg");
+        Value::Dummy
     }
 
     fn not(&mut self, v: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::not");
+        Value::Dummy
     }
-
 
     fn checked_binop(
         &mut self,
@@ -1231,16 +1294,18 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         lhs: Self::Value,
         rhs: Self::Value,
     ) -> (Self::Value, Self::Value) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::checked_binop");
+        (Value::Dummy, Value::Dummy)
     }
 
-
     fn alloca(&mut self, ty: Self::Type, align: Align) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::alloca");
+        Value::Dummy
     }
 
     fn dynamic_alloca(&mut self, ty: Self::Type, align: Align) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::dynamic_alloca");
+        Value::Dummy
     }
 
     fn array_alloca(
@@ -1249,28 +1314,31 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         len: Self::Value,
         align: Align,
     ) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::array_alloca");
+        Value::Dummy
     }
 
 
     fn load(&mut self, ptr: Self::Value, align: Align) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::load");
+        Value::Dummy
     }
 
     fn volatile_load(&mut self, ptr: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::volatile_load");
+        Value::Dummy
     }
 
     fn atomic_load(&mut self, ptr: Self::Value, order: AtomicOrdering, size: Size) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::atomic_load");
+        Value::Dummy
     }
 
     fn load_operand(&mut self, place: PlaceRef<'tcx, Self::Value>)
         -> OperandRef<'tcx, Self::Value>
     {
-        unimplemented!();
+        OperandRef{val: OperandValue::Immediate(Value::Dummy), layout: place.layout} // FIXME
     }
-
 
     fn write_operand_repeatedly(
         self,
@@ -1281,7 +1349,6 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         unimplemented!();
     }
 
-
     fn range_metadata(&mut self, load: Self::Value, range: Range<u128>) {
         unimplemented!();
     }
@@ -1290,9 +1357,9 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         unimplemented!();
     }
 
-
     fn store(&mut self, val: Self::Value, ptr: Self::Value, align: Align) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::store");
+        Value::Dummy
     }
 
     fn store_with_flags(
@@ -1302,7 +1369,8 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         align: Align,
         flags: MemFlags,
     ) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::store_with_flags");
+        Value::Dummy
     }
 
     fn atomic_store(
@@ -1312,84 +1380,100 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         order: AtomicOrdering,
         size: Size,
     ) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::atomic_store");
     }
 
 
     fn gep(&mut self, ptr: Self::Value, indices: &[Self::Value]) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::gep");
+        Value::Dummy
     }
 
     fn inbounds_gep(&mut self, ptr: Self::Value, indices: &[Self::Value]) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::inbounds_gep");
+        Value::Dummy
     }
 
     fn struct_gep(&mut self, ptr: Self::Value, idx: u64) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::struct_gep");
+        Value::Dummy
     }
 
 
     fn trunc(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::trunc");
+        Value::Dummy
     }
 
     fn sext(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::sext");
+        Value::Dummy
     }
 
     fn fptoui(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fptoui");
+        Value::Dummy
     }
 
     fn fptosi(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fptosi");
+        Value::Dummy
     }
 
     fn uitofp(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::uitofp");
+        Value::Dummy
     }
 
     fn sitofp(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::sitofp");
+        Value::Dummy
     }
 
     fn fptrunc(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fptrunc");
+        Value::Dummy
     }
 
     fn fpext(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fpext");
+        Value::Dummy
     }
 
     fn ptrtoint(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::ptrtoint");
+        Value::Dummy
     }
 
     fn inttoptr(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::inttoptr");
+        Value::Dummy
     }
 
     fn bitcast(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::bitcast");
+        Value::Dummy
     }
 
     fn intcast(&mut self, val: Self::Value, dest_ty: Self::Type, is_signed: bool) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::intcast");
+        Value::Dummy
     }
 
     fn pointercast(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::pointercast");
+        Value::Dummy
     }
 
-
     fn icmp(&mut self, op: IntPredicate, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::icmp");
+        Value::Dummy
     }
 
     fn fcmp(&mut self, op: RealPredicate, lhs: Self::Value, rhs: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::fcmp");
+        Value::Dummy
     }
-
 
     fn memcpy(
         &mut self,
@@ -1400,7 +1484,7 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         size: Self::Value,
         flags: MemFlags,
     ) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::memcpy");
     }
 
     fn memmove(
@@ -1412,7 +1496,7 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         size: Self::Value,
         flags: MemFlags,
     ) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::memmove");
     }
 
     fn memset(
@@ -1423,7 +1507,7 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         align: Align,
         flags: MemFlags,
     ) {
-        unimplemented!();
+        self.unimplemented("memset");
     }
 
 
@@ -1433,30 +1517,34 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         then_val: Self::Value,
         else_val: Self::Value,
     ) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::select");
+        Value::Dummy
     }
 
-
     fn va_arg(&mut self, list: Self::Value, ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::va_arg");
+        Value::Dummy
     }
 
     fn extract_element(&mut self, vec: Self::Value, idx: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::extract_element");
+        Value::Dummy
     }
 
     fn vector_splat(&mut self, num_elts: usize, elt: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::vector_splat");
+        Value::Dummy
     }
 
     fn extract_value(&mut self, agg_val: Self::Value, idx: u64) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::extract_value");
+        Value::Dummy
     }
 
     fn insert_value(&mut self, agg_val: Self::Value, elt: Self::Value, idx: u64) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::insert_value");
+        Value::Dummy
     }
-
 
     fn landing_pad(
         &mut self,
@@ -1464,15 +1552,17 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         pers_fn: Self::Value,
         num_clauses: usize,
     ) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::landing_pad");
+        Value::Dummy
     }
 
     fn set_cleanup(&mut self, landing_pad: Self::Value) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::set_cleanup");
     }
 
     fn resume(&mut self, exn: Self::Value) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::resume");
+        Value::Dummy
     }
 
     fn cleanup_pad(&mut self, parent: Option<Self::Value>, args: &[Self::Value]) -> Self::Funclet {
@@ -1484,7 +1574,8 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         funclet: &Self::Funclet,
         unwind: Option<Self::BasicBlock>,
     ) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::cleanup_ret");
+        Value::Dummy
     }
 
     fn catch_pad(&mut self, parent: Self::Value, args: &[Self::Value]) -> Self::Funclet {
@@ -1497,7 +1588,8 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         unwind: Option<Self::BasicBlock>,
         num_handlers: usize,
     ) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::catch_switch");
+        Value::Dummy
     }
 
     fn add_handler(&mut self, catch_switch: Self::Value, handler: Self::BasicBlock) {
@@ -1505,9 +1597,8 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
     }
 
     fn set_personality_fn(&mut self, personality: Self::Value) {
-        unimplemented!();
+	// Intentionally blank.
     }
-
 
     fn atomic_cmpxchg(
         &mut self,
@@ -1518,7 +1609,8 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         failure_order: AtomicOrdering,
         weak: bool,
     ) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::atomic_cmpxchg");
+        Value::Dummy
     }
 
     fn atomic_rmw(
@@ -1528,25 +1620,25 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         src: Self::Value,
         order: AtomicOrdering,
     ) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::atomic_rmw");
+        Value::Dummy
     }
 
     fn atomic_fence(&mut self, order: AtomicOrdering, scope: SynchronizationScope) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::atomic_fence");
     }
 
     fn set_invariant_load(&mut self, load: Self::Value) {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::set_invariant_load");
     }
 
     fn lifetime_start(&mut self, ptr: Self::Value, size: Size) {
-        unimplemented!();
+        // Intentionally blank.
     }
 
     fn lifetime_end(&mut self, ptr: Self::Value, size: Size) {
-        unimplemented!();
+        // Intentionally blank.
     }
-
 
     fn call(
         &mut self,
@@ -1554,13 +1646,14 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
         args: &[Self::Value],
         funclet: Option<&Self::Funclet>,
     ) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::call");
+        Value::Dummy
     }
 
     fn zext(&mut self, val: Self::Value, dest_ty: Self::Type) -> Self::Value {
-        unimplemented!();
+        self.unimplemented("BuilderMethods::zext");
+        Value::Dummy
     }
-
 
     unsafe fn delete_basic_block(&mut self, bb: Self::BasicBlock) {
         unimplemented!();
@@ -1569,5 +1662,4 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn do_not_inline(&mut self, llret: Self::Value) {
         unimplemented!();
     }
-
 }
