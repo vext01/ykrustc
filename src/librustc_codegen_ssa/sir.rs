@@ -37,6 +37,11 @@ use std::ffi::CString;
 use std::ops::Range;
 use std::iter::TrustedLen;
 
+use rustc_target::abi::HasDataLayout;
+pub use rustc_target::spec::abi::Abi;
+use crate::traits::ArgAbiMethods;
+pub use rustc_target::abi::call::PassMode;
+
 newtype_index! {
     pub struct FunctionIdx {
         DEBUG_FORMAT = "FunctionIdx[{}]"
@@ -166,14 +171,25 @@ pub struct Type {}
 pub struct Function {
     name: String,
     ty: TypeIdx,
+    args: Vec<Value>,
     blocks: IndexVec<BasicBlockIdx, BasicBlock>,
 }
 
 impl Function {
+    fn new(name: String, ty: TypeIdx, args: Vec<Value>,
+           blocks: IndexVec<BasicBlockIdx, BasicBlock>) -> Self {
+        Self{name, ty, args, blocks}
+    }
+
     fn add_block(&mut self, parent: FunctionIdx) -> BasicBlockIdx {
+
         let idx = self.blocks.len();
         self.blocks.push(BasicBlock::new(parent));
         BasicBlockIdx::from_usize(idx)
+    }
+
+    fn arg(&self, idx: usize) -> Value {
+        self.args[idx]
     }
 }
 
@@ -224,6 +240,66 @@ pub struct SirCodegenCx<'ll, 'tcx> {
 
     // FIXME: almost certain this lifetime will crop up later.
     pd: PhantomData<&'ll ()>,
+}
+
+pub trait ArgAbiExt<'ll, 'tcx> {
+    fn memory_ty(&self, cx: &SirCodegenCx<'ll, 'tcx>) -> TypeIdx;
+    fn store(
+        &self,
+        bx: &mut SirBuilder<'_, 'll, 'tcx>,
+        val: Value,
+        dst: PlaceRef<'tcx, Value>,
+    );
+    fn store_fn_arg(
+        &self,
+        bx: &mut SirBuilder<'_, 'll, 'tcx>,
+        idx: &mut usize,
+        dst: PlaceRef<'tcx, Value>,
+    );
+}
+
+impl ArgAbiExt<'ll, 'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
+    fn memory_ty(&self, cx: &SirCodegenCx<'ll, 'tcx>) -> TypeIdx {
+        unimplemented!();
+    }
+
+    fn store(
+        &self,
+        bx: &mut SirBuilder<'_, 'll, 'tcx>,
+        val: Value,
+        dst: PlaceRef<'tcx, Value>,
+    ) {
+        unimplemented!();
+    }
+
+    fn store_fn_arg(
+        &self,
+        bx: &mut SirBuilder<'a, 'll, 'tcx>,
+        idx: &mut usize,
+        dst: PlaceRef<'tcx, Value>,
+    ) {
+        let mut next = || {
+            let fn_idx = bx.llfn().unwrap_function();
+            let fns = bx.cx().functions.borrow();
+            let val = fns[fn_idx].arg(*idx);
+            *idx += 1;
+            val
+        };
+
+        match self.mode {
+            PassMode::Ignore => {}
+            PassMode::Pair(..) => {
+                OperandValue::Pair(next(), next()).store(bx, dst);
+            }
+            PassMode::Indirect(_, Some(_)) => {
+                OperandValue::Ref(next(), Some(next()), self.layout.align.abi).store(bx, dst);
+            }
+            PassMode::Direct(_) | PassMode::Indirect(_, None) | PassMode::Cast(_) => {
+                let next_arg = next();
+                self.store(bx, next_arg, dst);
+            }
+        }
+    }
 }
 
 impl SirCodegenCx<'ll, 'tcx> {
@@ -353,12 +429,11 @@ fn declare_raw_fn(
     let idx = fns.len();
     info!("declare_raw_fn: name={:?}, idx={:?}, ty={:?}", name, idx, ty);
 
-    fns.push(Function {
-        name: name.to_owned(),
-        ty,
-        blocks: IndexVec::default(),
-    });
+    // FIXME Edd you got this far.
+    // You need to implement FnTypeExt next to populate the function args.
+    let args = Vec::new();
 
+    fns.push(Function::new(name.to_owned(), ty, args, IndexVec::default()));
     Value::Function(FunctionIdx::from_usize(idx))
 }
 
@@ -809,6 +884,10 @@ impl SirBuilder<'a, 'll, 'tcx> {
     fn unimplemented(&mut self, msg: &'static str) -> Value {
         self.emit_instr(Instruction::Unimplemented(msg))
     }
+
+    fn llfn(&self) -> Value {
+        Value::Function(self.insertion_point.func_idx)
+    }
 }
 
 impl LayoutOf for SirBuilder<'a, 'll, 'tcx> {
@@ -973,7 +1052,7 @@ impl ArgAbiMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
         arg_abi: &ArgAbi<'tcx, Ty<'tcx>>,
         idx: &mut usize, dst: PlaceRef<'tcx, Self::Value>
     ) {
-        // FIXME
+        arg_abi.store_fn_arg(self, idx, dst)
     }
 
     fn store_arg(
@@ -982,11 +1061,11 @@ impl ArgAbiMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
         val: Value,
         dst: PlaceRef<'tcx, Value>
     ) {
-        // FIXME
+        arg_abi.store(self, val, dst)
     }
 
     fn arg_memory_ty(&self, arg_abi: &ArgAbi<'tcx, Ty<'tcx>>) -> TypeIdx {
-        unimplemented!();
+        arg_abi.memory_ty(self)
     }
 }
 
