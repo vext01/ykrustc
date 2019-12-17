@@ -253,7 +253,7 @@ impl AsmMethods for SirCodegenCx<'ll, 'tcx> {
 
 impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn const_null(&self, t: TypeIdx) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_undef(&self, t: TypeIdx) -> Value {
@@ -261,47 +261,47 @@ impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn const_int(&self, t: TypeIdx, i: i64) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_uint(&self, t: TypeIdx, i: u64) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_uint_big(&self, t: TypeIdx, u: u128) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_bool(&self, val: bool) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_i32(&self, i: i32) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_u32(&self, i: u32) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_u64(&self, i: u64) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_usize(&self, i: u64) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_u8(&self, i: u8) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_real(&self, t: TypeIdx, val: f64) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_str(&self, s: Symbol) -> (Value, Value) {
-        unimplemented!();
+        (Value::Dummy, Value::Dummy) // FIXME
     }
 
     fn const_struct(
@@ -309,15 +309,15 @@ impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         elts: &[Value],
         packed: bool
     ) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn const_to_opt_uint(&self, v: Value) -> Option<u64> {
-        unimplemented!();
+        Some(0) // FIXME
     }
 
     fn const_to_opt_u128(&self, v: Value, sign_ext: bool) -> Option<u128> {
-        unimplemented!();
+        Some(0) // FIXME
     }
 
     fn scalar_to_backend(
@@ -326,7 +326,7 @@ impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         layout: &layout::Scalar,
         llty: TypeIdx,
     ) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn from_const_alloc(
@@ -339,7 +339,7 @@ impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn const_ptrcast(&self, val: Value, ty: TypeIdx) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 }
 
@@ -562,7 +562,7 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn eh_personality(&self) -> Value {
-        unimplemented!();
+        Value::Dummy // FIXME
     }
 
     fn eh_unwind_resume(&self) -> Value {
@@ -574,7 +574,7 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn check_overflow(&self) -> bool {
-        unimplemented!();
+        false // FIXME
     }
 
     fn codegen_unit(&self) -> &Arc<CodegenUnit<'tcx>> {
@@ -652,7 +652,7 @@ impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn type_kind(&self, ty: TypeIdx) -> common::TypeKind {
-        unimplemented!();
+        common::TypeKind::Void // FIXME
     }
 
     fn type_ptr_to(&self, ty: TypeIdx) -> TypeIdx {
@@ -757,7 +757,7 @@ impl LayoutTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn backend_field_index(&self, layout: TyLayout<'tcx>, index: usize) -> u64 {
-        unimplemented!();
+        0 // FIXME
     }
 
     fn scalar_pair_element_backend_type(
@@ -874,7 +874,7 @@ impl AbiBuilderMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
         fn_abi: &FnAbi<'tcx, Ty<'tcx>>,
         callsite: Self::Value
     ) {
-        unimplemented!();
+        // Intentionally left blank.
     }
 
     fn get_param(&self, index: usize) -> Self::Value {
@@ -963,7 +963,7 @@ impl HasCodegen<'tcx> for SirBuilder<'a, 'll, 'tcx> {
 
 impl ty::layout::HasParamEnv<'tcx> for SirBuilder<'a, 'll, 'tcx> {
     fn param_env(&self) -> ty::ParamEnv<'tcx> {
-        unimplemented!();
+        ty::ParamEnv::reveal_all()
     }
 }
 
@@ -973,7 +973,7 @@ impl ArgAbiMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
         arg_abi: &ArgAbi<'tcx, Ty<'tcx>>,
         idx: &mut usize, dst: PlaceRef<'tcx, Self::Value>
     ) {
-        unimplemented!();
+        // FIXME
     }
 
     fn store_arg(
@@ -982,7 +982,7 @@ impl ArgAbiMethods<'tcx> for SirBuilder<'a, 'll, 'tcx> {
         val: Value,
         dst: PlaceRef<'tcx, Value>
     ) {
-        unimplemented!();
+        // FIXME
     }
 
     fn arg_memory_ty(&self, arg_abi: &ArgAbi<'tcx, Ty<'tcx>>) -> TypeIdx {
@@ -1660,6 +1660,6 @@ impl BuilderMethods<'a, 'tcx> for SirBuilder<'a, 'll, 'tcx> {
     }
 
     fn do_not_inline(&mut self, llret: Self::Value) {
-        unimplemented!();
+        // Intentionally left blank.
     }
 }
