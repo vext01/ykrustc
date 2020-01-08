@@ -12,6 +12,7 @@ use crate::mir::debuginfo::VariableKind;
 use rustc::mir::interpret::{Scalar, Allocation};
 use std::ops::Deref;
 use std::marker::PhantomData;
+use std::borrow::BorrowMut;
 use crate::mir::debuginfo::FunctionDebugContext;
 use rustc::hir::def_id::CrateNum;
 use rustc::hir;
@@ -165,7 +166,13 @@ impl Value {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Type {}
+pub enum SirType {
+    Function {
+        args: Vec<TypeIdx>,
+        ret: TypeIdx,
+    },
+    Dummy
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Function {
@@ -232,7 +239,7 @@ pub struct SirCodegenCx<'ll, 'tcx> {
     // FIXME Needed?
     pub instances: RefCell<FxHashMap<Instance<'tcx>, Value>>,
 
-    pub types: IndexVec<TypeIdx, Type>,
+    pub types: RefCell<IndexVec<TypeIdx, SirType>>,
     pub dummy_type_idx: TypeIdx,
 
     pub globals: RefCell<IndexVec<GlobalIdx, Global>>,
@@ -240,6 +247,15 @@ pub struct SirCodegenCx<'ll, 'tcx> {
 
     // FIXME: almost certain this lifetime will crop up later.
     pd: PhantomData<&'ll ()>,
+}
+
+impl SirCodegenCx<'ll, 'tcx> {
+    fn add_type(&self, t: SirType) -> TypeIdx {
+        let mut types = self.types.borrow_mut();
+        let new_idx = types.len();
+        types.push(t);
+        TypeIdx::from_usize(new_idx)
+    }
 }
 
 pub trait ArgAbiExt<'ll, 'tcx> {
@@ -312,7 +328,7 @@ impl SirCodegenCx<'ll, 'tcx> {
             codegen_unit,
             functions: RefCell::new(IndexVec::new()),
             instances: RefCell::new(FxHashMap::default()),
-            types: IndexVec::from_elem_n(Type{}, 1),
+            types: RefCell::new(IndexVec::from_elem_n(SirType::Dummy, 1)), // FIXME dummy types
             dummy_type_idx: TypeIdx::from_usize(0),
             globals: RefCell::new(IndexVec::default()),
             globals_cache: RefCell::new(FxHashMap::default()),
@@ -653,7 +669,7 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn codegen_unit(&self) -> &Arc<CodegenUnit<'tcx>> {
-        unimplemented!();
+        &self.codegen_unit
     }
 
     fn used_statics(&self) -> &RefCell<Vec<Value>> {
@@ -715,7 +731,11 @@ impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         args: &[TypeIdx],
         ret: TypeIdx
     ) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        let fn_type = SirType::Function {
+            args: Vec::from(args),
+            ret: ret.clone(),
+        };
+        self.add_type(fn_type)
     }
 
     fn type_struct(
@@ -868,11 +888,8 @@ impl SirBuilder<'a, 'll, 'tcx> {
         let ip = self.insertion_point;
 
         {
-            info!("get func");
             let func = &mut self.functions.borrow_mut()[ip.func_idx];
-            info!("get block");
             let block = &mut func.blocks[ip.block_idx];
-            info!("insert");
             block.instrs.insert(ip.instr_idx, instr);
         }
 
