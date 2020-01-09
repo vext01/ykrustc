@@ -140,7 +140,10 @@ impl Value {
                 funcs[*idx].ty
             },
             Self::FunctionArg(t) | Self::ConstUndef(t) => *t,
-            _ => unimplemented!("Value::type_of"),
+            _ => {
+                info!("{:?}", self);
+                unimplemented!("Value::ty");
+            }
         }
     }
 }
@@ -179,13 +182,27 @@ impl Value {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub enum SirType {
     Function {
         args: Vec<TypeIdx>,
         ret: TypeIdx,
     },
+    Scalar(ScalarType),
     Dummy
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ScalarType {
+    I1,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    ISize,
+    // An integer value of the given size.
+    //Ix(u64),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -269,6 +286,9 @@ pub struct SirCodegenCx<'ll, 'tcx> {
     pub instances: RefCell<FxHashMap<Instance<'tcx>, Value>>,
 
     pub types: RefCell<IndexVec<TypeIdx, SirType>>,
+    /// The reverse mapping of the above.
+    /// FIXME: don't store a copy of the SirType.
+    pub type_cache: RefCell<FxHashMap<SirType, TypeIdx>>,
     pub dummy_type_idx: TypeIdx,
 
     pub globals: RefCell<IndexVec<GlobalIdx, Global>>,
@@ -280,10 +300,13 @@ pub struct SirCodegenCx<'ll, 'tcx> {
 
 impl SirCodegenCx<'ll, 'tcx> {
     fn add_type(&self, t: SirType) -> TypeIdx {
-        let mut types = self.types.borrow_mut();
-        let new_idx = types.len();
-        types.push(t);
-        TypeIdx::from_usize(new_idx)
+        let mut cache = self.type_cache.borrow_mut();
+        *cache.entry(t.clone()).or_insert_with(|| { // FIXME kill clone.
+            let mut types = self.types.borrow_mut();
+            let new_idx = TypeIdx::from_usize(types.len());
+            types.push(t);
+            new_idx
+        })
     }
 }
 
@@ -308,13 +331,25 @@ impl ArgAbiExt<'ll, 'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
         unimplemented!();
     }
 
+    // An almost direct copy from the LLVM backend.
     fn store(
         &self,
         bx: &mut SirBuilder<'_, 'll, 'tcx>,
         val: Value,
         dst: PlaceRef<'tcx, Value>,
     ) {
-        unimplemented!();
+        if self.is_ignore() {
+            return;
+        }
+        if self.is_sized_indirect() {
+            OperandValue::Ref(val, None, self.layout.align.abi).store(bx, dst)
+        } else if self.is_unsized_indirect() {
+            bug!("unsized ArgAbi must be handled through store_fn_arg");
+        } else if let PassMode::Cast(cast) = self.mode {
+            unimplemented!("cast store");
+        } else {
+            OperandValue::Immediate(val).store(bx, dst);
+        }
     }
 
     fn store_fn_arg(
@@ -360,12 +395,16 @@ impl SirCodegenCx<'ll, 'tcx> {
         tcx: TyCtxt<'tcx>,
         codegen_unit: Arc<CodegenUnit<'tcx>>,
     ) -> Self {
+        let mut ty_map = FxHashMap::default();
+        ty_map.insert(SirType::Dummy, TypeIdx::from_usize(0)); // FIXME dummy types
+
         Self {
             tcx,
             codegen_unit,
             functions: RefCell::new(IndexVec::new()),
             instances: RefCell::new(FxHashMap::default()),
             types: RefCell::new(IndexVec::from_elem_n(SirType::Dummy, 1)), // FIXME dummy types
+            type_cache: RefCell::new(ty_map),
             dummy_type_idx: TypeIdx::from_usize(0),
             globals: RefCell::new(IndexVec::default()),
             globals_cache: RefCell::new(FxHashMap::default()),
@@ -799,39 +838,39 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
 
 impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn type_i1(&self) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        self.add_type(SirType::Scalar(ScalarType::I1))
     }
 
     fn type_i8(&self) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        self.add_type(SirType::Scalar(ScalarType::I8))
     }
 
     fn type_i16(&self) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        self.add_type(SirType::Scalar(ScalarType::I16))
     }
 
     fn type_i32(&self) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        self.add_type(SirType::Scalar(ScalarType::I32))
     }
 
     fn type_i64(&self) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        self.add_type(SirType::Scalar(ScalarType::I64))
     }
 
     fn type_i128(&self) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        self.add_type(SirType::Scalar(ScalarType::I128))
     }
 
     fn type_isize(&self) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        self.add_type(SirType::Scalar(ScalarType::ISize))
     }
 
     fn type_f32(&self) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        unimplemented!("type_f32");
     }
 
     fn type_f64(&self) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        unimplemented!("type_f64");
     }
 
     fn type_func(
