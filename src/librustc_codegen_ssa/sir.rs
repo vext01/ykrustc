@@ -140,6 +140,7 @@ impl Value {
                 funcs[*idx].ty
             },
             Self::FunctionArg(t) | Self::ConstUndef(t) => *t,
+            Self::Dummy => TypeIdx::from_usize(0), // FIXME dummy types
             _ => {
                 info!("{:?}", self);
                 unimplemented!("Value::ty");
