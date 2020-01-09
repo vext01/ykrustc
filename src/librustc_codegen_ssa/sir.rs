@@ -27,7 +27,7 @@ use crate::common::{self, IntPredicate, RealPredicate, AtomicOrdering, AtomicRmw
                     SynchronizationScope};
 use crate::MemFlags;
 use rustc::ty::{self, Ty, TyCtxt, Instance, PolyFnSig};
-use rustc::ty::layout::{self, Align, Size, TyLayout, LayoutError, LayoutOf};
+use rustc::ty::layout::{self, Align, Size, TyLayout, LayoutError, LayoutOf, FnAbiExt};
 use rustc::hir::def_id::DefId;
 use crate::traits::*;
 use crate::mir::operand::{OperandRef, OperandValue};
@@ -124,11 +124,25 @@ struct DILexicalBlock {}
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Value {
     Function(FunctionIdx),
+    FunctionArg(TypeIdx),
     Global(GlobalIdx),
     Instruction(InstructionPath),
     ConstUndef(TypeIdx),
     /// Unimplemented instructions currently return this.
     Dummy,
+}
+
+impl Value {
+    fn ty(&self, cx: &SirCodegenCx<'ll, 'tcx>) -> TypeIdx {
+        match self {
+            Self::Function(idx) => {
+                let funcs = cx.functions.borrow();
+                funcs[*idx].ty
+            },
+            Self::FunctionArg(t) | Self::ConstUndef(t) => *t,
+            _ => unimplemented!("Value::type_of"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -178,25 +192,40 @@ pub enum SirType {
 pub struct Function {
     name: String,
     ty: TypeIdx,
-    args: Vec<Value>,
+    //args: Vec<Value>,
     blocks: IndexVec<BasicBlockIdx, BasicBlock>,
 }
 
 impl Function {
-    fn new(name: String, ty: TypeIdx, args: Vec<Value>,
-           blocks: IndexVec<BasicBlockIdx, BasicBlock>) -> Self {
-        Self{name, ty, args, blocks}
+    //fn new(name: String, ty: TypeIdx, args: Vec<Value>,
+    fn new(name: String, ty: TypeIdx, blocks: IndexVec<BasicBlockIdx, BasicBlock>) -> Self {
+        //Self{name, ty, args, blocks}
+        Self{name, ty, blocks}
     }
 
     fn add_block(&mut self, parent: FunctionIdx) -> BasicBlockIdx {
-
         let idx = self.blocks.len();
         self.blocks.push(BasicBlock::new(parent));
         BasicBlockIdx::from_usize(idx)
     }
 
-    fn arg(&self, idx: usize) -> Value {
-        self.args[idx]
+    fn arg(&self, cx: &SirCodegenCx<'ll, 'tcx>, idx: usize) -> Value {
+        info!("arg");
+        let types = cx.types.borrow();
+        if let SirType::Function{args, ..} = &types[self.ty] {
+            info!("arg type right");
+            let ret = Value::FunctionArg(args[idx]);
+            info!("got arg");
+            ret
+        } else {
+            panic!("invalid function type");
+        }
+
+        //info!("AAA");
+        ////let ret = self.args[idx];
+        //let ret = self.args[idx];
+        //info!("/AAA");
+        //ret
     }
 }
 
@@ -295,22 +324,30 @@ impl ArgAbiExt<'ll, 'tcx> for ArgAbi<'tcx, Ty<'tcx>> {
         dst: PlaceRef<'tcx, Value>,
     ) {
         let mut next = || {
+            info!("next arg: idx={}", idx);
             let fn_idx = bx.llfn().unwrap_function();
             let fns = bx.cx().functions.borrow();
-            let val = fns[fn_idx].arg(*idx);
+            info!("XXX");
+            let val = fns[fn_idx].arg(bx.cx(), *idx);
+            info!("/XXX");
             *idx += 1;
             val
         };
 
         match self.mode {
-            PassMode::Ignore => {}
+            PassMode::Ignore => {
+                info!(">> ignore");
+            },
             PassMode::Pair(..) => {
+                info!(">> pair");
                 OperandValue::Pair(next(), next()).store(bx, dst);
             }
             PassMode::Indirect(_, Some(_)) => {
+                info!(">> indirect");
                 OperandValue::Ref(next(), Some(next()), self.layout.align.abi).store(bx, dst);
             }
             PassMode::Direct(_) | PassMode::Indirect(_, None) | PassMode::Cast(_) => {
+                info!(">> direct");
                 let next_arg = next();
                 self.store(bx, next_arg, dst);
             }
@@ -435,6 +472,76 @@ impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 }
 
+pub trait FnAbiSirExt<'tcx> {
+    fn sir_type(&self, cx: &SirCodegenCx<'ll, 'tcx>) -> TypeIdx;
+    //fn ptr_to_llvm_type(&self, cx: &SirCodegenCx<'ll, 'tcx>) -> &'ll Type;
+    //fn llvm_cconv(&self) -> llvm::CallConv;
+    //fn apply_attrs_llfn(&self, cx: &SirCodegenCx<'ll, 'tcx>, llfn: &'ll Value);
+    //fn apply_attrs_callsite(&self, bx: &mut SirBuilder<'a, 'll, 'tcx>, callsite: &'ll Value);
+}
+
+impl<'tcx> FnAbiSirExt<'tcx> for FnAbi<'tcx, Ty<'tcx>> {
+    fn sir_type(&self, cx: &SirCodegenCx<'ll, 'tcx>) -> TypeIdx {
+        let args_capacity: usize = self.args.iter().map(|arg|
+            if arg.pad.is_some() { 1 } else { 0 } +
+            if let PassMode::Pair(_, _) = arg.mode { 2 } else { 1 }
+        ).sum();
+
+        let mut llargument_tys = Vec::with_capacity(
+            if let PassMode::Indirect(..) = self.ret.mode { 1 } else { 0 } + args_capacity
+        );
+
+        let llreturn_ty = TypeIdx::from_usize(0); // FIXME
+        //let llreturn_ty = match self.ret.mode {
+        //    PassMode::Ignore => cx.type_void(),
+        //    PassMode::Direct(_) | PassMode::Pair(..) => {
+        //        self.ret.layout.immediate_llvm_type(cx)
+        //    }
+        //    PassMode::Cast(cast) => cast.llvm_type(cx),
+        //    PassMode::Indirect(..) => {
+        //        llargument_tys.push(cx.type_ptr_to(self.ret.memory_ty(cx)));
+        //        cx.type_void()
+        //    }
+        //};
+
+        for arg in &self.args {
+            // add padding
+            if let Some(ty) = arg.pad {
+                //llargument_tys.push(ty.llvm_type(cx));
+                llargument_tys.push(TypeIdx::from_usize(0)); // FIXME
+            }
+
+            //let llarg_ty = match arg.mode {
+            //    PassMode::Ignore => continue,
+            //    PassMode::Direct(_) => arg.layout.immediate_llvm_type(cx),
+            //    PassMode::Pair(..) => {
+            //        llargument_tys.push(arg.layout.scalar_pair_element_llvm_type(cx, 0, true));
+            //        llargument_tys.push(arg.layout.scalar_pair_element_llvm_type(cx, 1, true));
+            //        continue;
+            //    }
+            //    PassMode::Indirect(_, Some(_)) => {
+            //        let ptr_ty = cx.tcx.mk_mut_ptr(arg.layout.ty);
+            //        let ptr_layout = cx.layout_of(ptr_ty);
+            //        llargument_tys.push(ptr_layout.scalar_pair_element_llvm_type(cx, 0, true));
+            //        llargument_tys.push(ptr_layout.scalar_pair_element_llvm_type(cx, 1, true));
+            //        continue;
+            //    }
+            //    PassMode::Cast(cast) => cast.llvm_type(cx),
+            //    PassMode::Indirect(_, None) => cx.type_ptr_to(arg.memory_ty(cx)),
+            //};
+            //llargument_tys.push(llarg_ty);
+            llargument_tys.push(TypeIdx::from_usize(0));
+        }
+
+        if self.c_variadic {
+            unimplemented!("variadic funcs");
+            //cx.type_variadic_func(&llargument_tys, llreturn_ty)
+        } else {
+            cx.type_func(&llargument_tys[..], llreturn_ty)
+        }
+    }
+}
+
 fn declare_raw_fn(
     cx: &SirCodegenCx<'ll, 'tcx>,
     name: &str,
@@ -445,11 +552,7 @@ fn declare_raw_fn(
     let idx = fns.len();
     info!("declare_raw_fn: name={:?}, idx={:?}, ty={:?}", name, idx, ty);
 
-    // FIXME Edd you got this far.
-    // You need to implement FnTypeExt next to populate the function args.
-    let args = Vec::new();
-
-    fns.push(Function::new(name.to_owned(), ty, args, IndexVec::default()));
+    fns.push(Function::new(name.to_owned(), ty, IndexVec::default()));
     Value::Function(FunctionIdx::from_usize(idx))
 }
 
@@ -487,7 +590,12 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         let sig = self.tcx.normalize_erasing_late_bound_regions(ty::ParamEnv::reveal_all(), &sig);
         info!("declare_rust_fn (after region erasure) sig={:?}", sig);
 
-        declare_raw_fn(self, name, self.dummy_type_idx)
+        //let fn_type = self.new_fn_type(sig, &[]); //.ironox_type(self);
+        let fn_abi = FnAbi::new(self, sig, &[]);
+        //let llfn = declare_raw_fn(self, name, fn_abi.llvm_cconv(), fn_abi.llvm_type(self));
+
+        // declare_raw_fn(self, name, self.dummy_type_idx)
+        declare_raw_fn(self, name, fn_abi.sir_type(self))
     }
 
     fn define_global(
@@ -771,7 +879,7 @@ impl BaseTypeMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn val_ty(&self, v: Value) -> TypeIdx {
-        TypeIdx::from_usize(0) // FIXME
+        v.ty(self)
     }
 }
 
