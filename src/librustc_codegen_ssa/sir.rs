@@ -18,7 +18,7 @@ use rustc::hir::def_id::CrateNum;
 use rustc::hir;
 use rustc::mir;
 use rustc::mir::mono::{Linkage, Visibility};
-use std::cell::RefCell;
+use std::cell::{RefCell, Cell};
 use std::sync::Arc;
 use rustc::session::Session;
 use rustc::mir::mono::CodegenUnit;
@@ -42,6 +42,7 @@ use rustc_target::abi::HasDataLayout;
 pub use rustc_target::spec::abi::Abi;
 use crate::traits::ArgAbiMethods;
 pub use rustc_target::abi::call::PassMode;
+use rustc_data_structures::base_n;
 
 newtype_index! {
     pub struct FunctionIdx {
@@ -90,7 +91,7 @@ impl BasicBlockPath {
     }
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Hash, Eq)]
 pub struct InstructionPath {
     pub func_idx: FunctionIdx,
     pub block_idx: BasicBlockIdx,
@@ -107,21 +108,12 @@ impl Default for InstructionPath {
     }
 }
 
-//impl InstructionPath {
-//    fn new(func_idx: FunctionIdx,
-//           block_idx: BasicBlockIdx,
-//           instr_idx: InstructionIdx) -> Self
-//    {
-//        Self {func_idx, block_idx, instr_idx}
-//    }
-//}
-
 #[allow(dead_code)]
 struct DILexicalBlock {}
 
 /// The all-encompassing enum.
 /// Each is an index into the corresponding vector in SirCodegenCx.
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Hash, Eq)]
 pub enum Value {
     Function(FunctionIdx),
     FunctionArg(TypeIdx),
@@ -293,10 +285,15 @@ pub struct SirCodegenCx<'ll, 'tcx> {
     pub dummy_type_idx: TypeIdx,
 
     pub globals: RefCell<IndexVec<GlobalIdx, Global>>,
-    pub globals_cache: RefCell<FxHashMap<String, GlobalIdx>>,
+    pub globals_by_name: RefCell<FxHashMap<String, GlobalIdx>>,
+    pub const_globals: RefCell<FxHashMap<Value, GlobalIdx>>,
 
     // FIXME: almost certain this lifetime will crop up later.
     pd: PhantomData<&'ll ()>,
+
+    pub vtables: RefCell<FxHashMap<(Ty<'tcx>, Option<ty::PolyExistentialTraitRef<'tcx>>), Value>>,
+
+    local_gen_sym_counter: Cell<usize>,
 }
 
 impl SirCodegenCx<'ll, 'tcx> {
@@ -308,6 +305,18 @@ impl SirCodegenCx<'ll, 'tcx> {
             types.push(t);
             new_idx
         })
+    }
+
+    pub fn generate_local_symbol_name(&self, prefix: &str) -> String {
+        let idx = self.local_gen_sym_counter.get();
+        self.local_gen_sym_counter.set(idx + 1);
+        // Include a '.' character, so there can be no accidental conflicts with
+        // user defined names
+        let mut name = String::with_capacity(prefix.len() + 6);
+        name.push_str(prefix);
+        name.push_str(".");
+        base_n::push_str(idx as u128, base_n::ALPHANUMERIC_ONLY, &mut name);
+        name
     }
 }
 
@@ -408,8 +417,11 @@ impl SirCodegenCx<'ll, 'tcx> {
             type_cache: RefCell::new(ty_map),
             dummy_type_idx: TypeIdx::from_usize(0),
             globals: RefCell::new(IndexVec::default()),
-            globals_cache: RefCell::new(FxHashMap::default()),
+            globals_by_name: RefCell::new(FxHashMap::default()),
+            const_globals: RefCell::new(FxHashMap::default()),
+            vtables: RefCell::new(FxHashMap::default()),
             pd: PhantomData,
+            local_gen_sym_counter: Cell::new(0),
         }
     }
 }
@@ -603,14 +615,17 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     ) -> Value {
         info!("declare_global(name={:?})", name);
         let mut globals = self.globals.borrow_mut();
+        let mut globals_by_name = self.globals_by_name.borrow_mut();
 
         let idx = globals.len();
         globals.push(Global {
             name: name.to_owned(),
             ty
         });
+        let gi = GlobalIdx::from_usize(idx);
+        globals_by_name.insert(name.to_owned(), gi);
 
-        Value::Global(GlobalIdx::from_usize(idx))
+        Value::Global(gi)
     }
 
     fn declare_cfn(
@@ -671,7 +686,7 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn get_declared_value(&self, name: &str) -> Option<Value> {
-        if let Some(idx) = self.globals_cache.borrow().get(name) {
+        if let Some(idx) = self.globals_by_name.borrow().get(name) {
             Some(Value::Global(*idx))
         } else {
             None
@@ -762,7 +777,30 @@ impl StaticMethods for SirCodegenCx<'ll, 'tcx> {
         align: Align,
         kind: Option<&str>,
     ) -> Value {
-        unimplemented!();
+        let mut const_globals = self.const_globals.borrow_mut();
+        if let Some(&gv) = const_globals.get(&cv) {
+            // FIXME: Fiddle alignment, as LLVM backend does?
+            return Value::Global(gv);
+        }
+
+        // In the LLVM codegen, this part is in static_addr_of_mut().
+        // Inlined for borrowing reasons.
+        let gv = match kind {
+            Some(kind) if !self.tcx.sess.fewer_names() => {
+                let name = self.generate_local_symbol_name(kind);
+                let gv = self.define_global(&name[..],
+                    self.val_ty(cv)).unwrap_or_else(||{
+                    bug!("symbol `{}` is already defined", name);
+                });
+                gv
+            },
+            _ => self.define_private_global(self.val_ty(cv)),
+        };
+
+        // FIXME set initialiser?
+        // FIXME set alignment?
+        const_globals.insert(cv, gv.unwrap_global());
+        gv
     }
 
     fn codegen_static(
@@ -778,7 +816,7 @@ impl MiscMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     fn vtables(&self) -> &RefCell<FxHashMap<(Ty<'tcx>,
                                 Option<ty::PolyExistentialTraitRef<'tcx>>), Value>>
     {
-        unimplemented!();
+        &self.vtables
     }
 
     fn get_fn(&self, instance: Instance<'tcx>) -> Value {
