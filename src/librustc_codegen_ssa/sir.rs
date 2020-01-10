@@ -516,7 +516,7 @@ impl ConstMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         alloc: &Allocation,
         offset: Size,
     ) -> PlaceRef<'tcx, Value> {
-        unimplemented!();
+        PlaceRef::new_sized(Value::Dummy, layout) // FIXME
     }
 
     fn const_ptrcast(&self, val: Value, ty: TypeIdx) -> Value {
@@ -666,7 +666,8 @@ impl DeclareMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
     }
 
     fn define_private_global(&self, ty: TypeIdx) -> Value {
-        unimplemented!();
+        let name = self.generate_local_symbol_name("private_global");
+        self.declare_global(&name, ty)
     }
 
     fn define_fn(
@@ -714,7 +715,7 @@ impl DebugInfoMethods<'tcx> for SirCodegenCx<'ll, 'tcx> {
         ty: Ty<'tcx>,
         vtable: Self::Value,
     ) {
-        unimplemented!();
+        // Intentionally left blank.
     }
 
     fn extend_scope_to_file(
