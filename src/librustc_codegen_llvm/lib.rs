@@ -36,6 +36,7 @@ extern crate rustc_codegen_utils;
 extern crate rustc_codegen_ssa;
 extern crate rustc_fs_util;
 extern crate rustc_driver as _;
+extern crate serialize as rustc_serialize;
 
 #[macro_use] extern crate log;
 extern crate smallvec;
@@ -84,6 +85,7 @@ mod context;
 mod debuginfo;
 mod declare;
 mod intrinsic;
+mod sir;
 
 // The following is a work around that replaces `pub mod llvm;` and that fixes issue 53912.
 #[path = "llvm/mod.rs"] mod llvm_; pub mod llvm { pub use super::llvm_::*; }

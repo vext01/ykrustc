@@ -172,6 +172,8 @@ pub fn compile_codegen_unit(
             if cx.sess().opts.debuginfo != DebugInfo::None {
                 cx.debuginfo_finalize();
             }
+
+            // FIXME: serialize and link everything the SirCx collected here.
         }
 
         ModuleCodegen {

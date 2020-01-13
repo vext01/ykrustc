@@ -39,6 +39,7 @@ fn declare_raw_fn(
     let llfn = unsafe {
         llvm::LLVMRustGetOrInsertFunction(cx.llmod, namebuf.as_ptr(), ty)
     };
+    cx.sir_cx.borrow_mut().add_func(llfn, String::from(namebuf.as_c_str().to_str().unwrap()));
 
     llvm::SetFunctionCallConv(llfn, callconv);
     // Function addresses in Rust are never significant, allowing functions to

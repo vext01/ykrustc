@@ -131,6 +131,7 @@ impl BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
                 name.as_ptr()
             )
         };
+        cx.sir_cx.borrow_mut().add_block(llfn, llbb);
         bx.position_at_end(llbb);
         bx
     }
