@@ -43,6 +43,7 @@ use crate::mir;
 use crate::traits::*;
 
 use std::cmp;
+use std::env;
 use std::ops::{Deref, DerefMut};
 use std::time::{Instant, Duration};
 use syntax_pos::Span;
@@ -631,6 +632,28 @@ pub fn codegen_crate<B: ExtraBackendMethods>(
                 true
             }
         };
+    }
+
+    // FIXME Eventually this should be decided based upon TRACER_MODE. We temproarily hack a new
+    // env var so that we don't need to the whole compiler to build with SIR in the interim.
+    if let Ok(val) = env::var("NEW_SIR") {
+        if val == "1" {
+            let sir_cgu_name = cgu_name_builder.build_cgu_name(LOCAL_CRATE,
+                &["crate"],
+                Some("yksirx")).to_string();
+            let mut sir_llvm_module = backend.new_metadata(tcx, &sir_cgu_name);
+
+            time(tcx.sess, "write SIR", || {
+                backend.write_sir(tcx, &mut sir_llvm_module);
+            });
+
+            let sir_module = ModuleCodegen {
+                name: sir_cgu_name,
+                module_llvm: sir_llvm_module,
+                kind: ModuleKind::YkSir,
+            };
+            ongoing_codegen.submit_pre_codegened_module_to_llvm(tcx, sir_module);
+        }
     }
 
     ongoing_codegen.codegen_finished(tcx);

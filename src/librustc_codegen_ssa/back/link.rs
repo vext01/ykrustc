@@ -543,9 +543,14 @@ fn link_natively<'a, B: ArchiveBuilder<'a>>(sess: &'a Session,
     }
 
     // Link Yorick objects into executables.
-    if crate_type == config::CrateType::Executable {
+    // FIXME deal with races, as with metadata linkage.
+    if let Some(sir_mod) = codegen_results.sir_module.as_ref() {
+        dbg!("link sir");
+        let sir_path = sir_mod.object.as_ref().unwrap();
+        // FIXME it'd be nice if we could figure out a better way to keep the sir section whilst
+        // GCing the other sections.
         cmd.arg("-Wl,--no-gc-sections");
-        cmd.args(sess.yk_link_objects.borrow().iter().map(|o| o.path()));
+        cmd.arg(sir_path);
     }
 
     for &(ref k, ref v) in &sess.target.target.options.link_env {

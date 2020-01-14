@@ -60,6 +60,8 @@ pub struct ModuleCodegen<M> {
 }
 
 pub const METADATA_FILENAME: &str = "rust.metadata.bin";
+pub const SIR_FILENAME: &str = "rust.yksir.bin";
+pub const SIR_OBJ_FILENAME: &str = "rust.yksir.obj";
 pub const RLIB_BYTECODE_EXTENSION: &str = "bc.z";
 
 
@@ -115,6 +117,7 @@ pub enum ModuleKind {
     Regular,
     Metadata,
     Allocator,
+    YkSir,
 }
 
 bitflags::bitflags! {
@@ -151,6 +154,7 @@ pub struct CodegenResults {
     pub modules: Vec<CompiledModule>,
     pub allocator_module: Option<CompiledModule>,
     pub metadata_module: Option<CompiledModule>,
+    pub sir_module: Option<CompiledModule>,
     pub crate_hash: Svh,
     pub metadata: rustc::middle::cstore::EncodedMetadata,
     pub windows_subsystem: Option<String>,

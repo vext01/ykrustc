@@ -5,8 +5,15 @@
 use std::default::Default;
 use rustc_index::{newtype_index, vec::{Idx, IndexVec}};
 use rustc_data_structures::fx::FxHashMap;
+use rustc_data_structures::small_c_str::SmallCStr;
+use rustc::hir::def_id::LOCAL_CRATE;
+use rustc::ty::TyCtxt;
 use crate::value::Value;
-use crate::llvm::BasicBlock;
+use crate::llvm::{self, BasicBlock};
+use crate::{common, ModuleLlvm};
+use std::ffi::CString;
+
+const SIR_SECTION: &str = ".yksir";
 
 newtype_index! {
     pub struct SirFuncIdx {
@@ -80,5 +87,42 @@ impl SirCx<'ll> {
         sir_func.blocks.push(idx);
         let existing = self.llvm_blocks.insert(block, idx);
         debug_assert!(existing.is_none());
+    }
+}
+
+/// Writes the SIR into a buffer which will be linked in into an ELF section via LLVM.
+/// This is based on write_compressed_metadata().
+pub fn write_sir<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    llvm_module: &mut ModuleLlvm,
+) {
+    dbg!("encode sir");
+
+    let (sir_llcx, sir_llmod) = (&*llvm_module.llcx, llvm_module.llmod());
+    // FIXME encode something useful here.
+    let encoded_sir = vec![1,2,3];
+
+    let llmeta = common::bytes_in_context(sir_llcx, &encoded_sir);
+    let llconst = common::struct_in_context(sir_llcx, &[llmeta], false);
+
+    // Borrowed from exported_symbols::metadata_symbol_name().
+    let sym_name = format!("yksir_{}_{}",
+        tcx.original_crate_name(LOCAL_CRATE),
+        tcx.crate_disambiguator(LOCAL_CRATE).to_fingerprint().to_hex());
+
+    let buf = CString::new(sym_name).unwrap();
+    let llglobal = unsafe {
+        llvm::LLVMAddGlobal(sir_llmod, common::val_ty(llconst), buf.as_ptr())
+    };
+
+    unsafe {
+        llvm::LLVMSetInitializer(llglobal, llconst);
+        let name = SmallCStr::new(SIR_SECTION);
+        llvm::LLVMSetSection(llglobal, name.as_ptr());
+
+        // Force no flags, so that the SIR doesn't get loaded into memory.
+        let directive = format!(".section {}", SIR_SECTION);
+        let directive = CString::new(directive).unwrap();
+        llvm::LLVMSetModuleInlineAsm(sir_llmod, directive.as_ptr())
     }
 }
