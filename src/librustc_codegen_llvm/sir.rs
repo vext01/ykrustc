@@ -12,6 +12,7 @@ use crate::value::Value;
 use crate::llvm::{self, BasicBlock};
 use crate::{common, ModuleLlvm};
 use std::ffi::CString;
+use ykpack;
 
 const SIR_SECTION: &str = ".yksir";
 
@@ -88,6 +89,22 @@ impl SirCx<'ll> {
         let existing = self.llvm_blocks.insert(block, idx);
         debug_assert!(existing.is_none());
     }
+
+    pub fn serialise_into_tcx(&self, tcx: TyCtxt<'tcx>) {
+        let mut buf = Vec::new();
+        let mut ec = ykpack::Encoder::from(&mut buf);
+
+        for func in &self.funcs {
+            ec.serialise(ykpack::Pack::Body(
+                    ykpack::Body {
+                        //blocks: Vec::new(),
+                        symbol_name: func.symbol_name.clone(),
+                    })).unwrap();
+        }
+
+        ec.done().unwrap();
+        tcx.encoded_sir.borrow_mut().push(buf);
+    }
 }
 
 /// Writes the SIR into a buffer which will be linked in into an ELF section via LLVM.
@@ -96,13 +113,18 @@ pub fn write_sir<'tcx>(
     tcx: TyCtxt<'tcx>,
     llvm_module: &mut ModuleLlvm,
 ) {
-    dbg!("encode sir");
-
     let (sir_llcx, sir_llmod) = (&*llvm_module.llcx, llvm_module.llmod());
-    // FIXME encode something useful here.
-    let encoded_sir = vec![1,2,3];
 
-    let llmeta = common::bytes_in_context(sir_llcx, &encoded_sir);
+    // Steal the SIR from the tcx and move it into a buffer for LLVM to include.
+    let sir = tcx.encoded_sir.replace(Default::default());
+    let mut buf = Vec::new();
+    for cg_sir in sir.into_iter() {
+        debug!("CG sir of length: {}", cg_sir.len());
+        buf.extend(cg_sir);
+    }
+
+    // FIXME number of collections needs to be encoded.
+    let llmeta = common::bytes_in_context(sir_llcx, &buf);
     let llconst = common::struct_in_context(sir_llcx, &[llmeta], false);
 
     // Borrowed from exported_symbols::metadata_symbol_name().

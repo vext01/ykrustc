@@ -26,6 +26,7 @@ use crate::callee::get_fn;
 
 use std::ffi::CStr;
 use std::cell::{Cell, RefCell};
+use std::env;
 use std::iter;
 use std::str;
 use std::sync::Arc;
@@ -94,7 +95,7 @@ pub struct CodegenCx<'ll, 'tcx> {
     local_gen_sym_counter: Cell<usize>,
 
     /// SIR generation context for Yorick.
-    pub sir_cx: RefCell<SirCx<'ll>>,
+    pub sir_cx: RefCell<Option<SirCx<'ll>>>,
 }
 
 impl<'ll, 'tcx> DepGraphSafe for CodegenCx<'ll, 'tcx> {}
@@ -294,6 +295,14 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
 
         let isize_ty = Type::ix_llcx(llcx, tcx.data_layout.pointer_size.bits());
 
+        // FIXME don't use NEW_SIR.
+        let mut sir_cx = None;
+        if let Ok(val) = env::var("NEW_SIR") {
+            if val == "1" {
+                sir_cx = Some(SirCx::new());
+            }
+        }
+
         CodegenCx {
             tcx,
             check_overflow,
@@ -319,7 +328,7 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
             rust_try_fn: Cell::new(None),
             intrinsics: Default::default(),
             local_gen_sym_counter: Cell::new(0),
-            sir_cx: RefCell::new(SirCx::new()),
+            sir_cx: RefCell::new(sir_cx),
         }
     }
 

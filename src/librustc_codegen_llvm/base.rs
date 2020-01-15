@@ -173,7 +173,8 @@ pub fn compile_codegen_unit(
                 cx.debuginfo_finalize();
             }
 
-            // FIXME: serialize and link everything the SirCx collected here.
+            // Stash the serialised SIR so that we can include it later.
+            cx.sir_cx.borrow().as_ref().map(|sir_cx| sir_cx.serialise_into_tcx(tcx));
         }
 
         ModuleCodegen {

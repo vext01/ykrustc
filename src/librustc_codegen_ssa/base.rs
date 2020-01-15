@@ -640,7 +640,7 @@ pub fn codegen_crate<B: ExtraBackendMethods>(
         if val == "1" {
             let sir_cgu_name = cgu_name_builder.build_cgu_name(LOCAL_CRATE,
                 &["crate"],
-                Some("yksirx")).to_string();
+                Some("yksir")).to_string();
             let mut sir_llvm_module = backend.new_metadata(tcx, &sir_cgu_name);
 
             time(tcx.sess, "write SIR", || {

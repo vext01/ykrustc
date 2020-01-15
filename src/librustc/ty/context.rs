@@ -59,6 +59,7 @@ use rustc_data_structures::sharded::ShardedHashMap;
 use rustc_data_structures::sync::{Lrc, Lock, WorkerLocal};
 use std::any::Any;
 use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::hash_map::{self, Entry};
 use std::hash::{Hash, Hasher};
@@ -1107,6 +1108,10 @@ pub struct GlobalCtxt<'tcx> {
     layout_interner: ShardedHashMap<&'tcx LayoutDetails, ()>,
 
     output_filenames: Arc<OutputFilenames>,
+
+    /// A collection of binary blobs constituting the encoded SIR. Due to the workings of the
+    /// compiler, there is one per codegen unit.
+    pub encoded_sir: RefCell<Vec<Vec<u8>>>,
 }
 
 impl<'tcx> TyCtxt<'tcx> {
@@ -1302,6 +1307,7 @@ impl<'tcx> TyCtxt<'tcx> {
             allocation_interner: Default::default(),
             alloc_map: Lock::new(interpret::AllocMap::new()),
             output_filenames: Arc::new(output_filenames.clone()),
+            encoded_sir: Default::default(),
         }
     }
 
