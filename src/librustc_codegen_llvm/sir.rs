@@ -22,6 +22,9 @@ newtype_index! {
     }
 }
 
+// The index of a block within a function.
+// Note that these indices are not globally unique. For a globally unique block identifier, a
+// (SirFuncIdx, SirBlockIdx) pair must be used.
 newtype_index! {
     pub struct SirBlockIdx {
         DEBUG_FORMAT = "SirBlockIdx({})"
@@ -31,7 +34,6 @@ newtype_index! {
 #[derive(Debug)]
 pub enum SirValue {
     Func(SirFuncIdx),
-    // more will appear...
 }
 
 impl SirValue {
@@ -41,24 +43,13 @@ impl SirValue {
     }
 }
 
-// FIXME This will need to be shared via ykpack.
-#[derive(Debug)]
-pub struct SirFunc {
-    symbol_name: String,
-    blocks: Vec<SirBlockIdx>,
-}
-
-// FIXME This will need to be shared via ykpack.
-#[derive(Debug)]
-pub struct SirBlock {}
-
 pub struct SirCx<'ll> {
     /// Maps an opaque LLVM `Value` to its SIR equivalent.
     llvm_values: FxHashMap<&'ll Value, SirValue>,
-    llvm_blocks: FxHashMap<&'ll BasicBlock, SirBlockIdx>,
-
-    pub funcs: IndexVec<SirFuncIdx, SirFunc>,
-    pub blocks: IndexVec<SirBlockIdx, SirBlock>,
+    /// Maps an opaque LLVM `BasicBlock` to the function and block index of it's SIR equivalent.
+    llvm_blocks: FxHashMap<&'ll BasicBlock, (SirFuncIdx, SirBlockIdx)>,
+    /// Function store. Also owns the blocks
+    pub funcs: IndexVec<SirFuncIdx, ykpack::Body>,
 }
 
 impl SirCx<'ll> {
@@ -67,46 +58,39 @@ impl SirCx<'ll> {
             llvm_values: Default::default(),
             llvm_blocks: FxHashMap::default(),
             funcs: Default::default(),
-            blocks: Default::default(),
         }
     }
 
     pub fn add_func(&mut self, value: &'ll Value, symbol_name: String) {
         let idx = SirFuncIdx::from_usize(self.funcs.len());
-        self.funcs.push(SirFunc{
+        self.funcs.push(ykpack::Body{
             symbol_name,
             blocks: Default::default(),
+            num_locals: 0,  // FIXME
+            num_args: 0,    // FIXME
+            flags: 0,       // FIXME
         });
         let existing = self.llvm_values.insert(value, SirValue::Func(idx));
         debug_assert!(existing.is_none());
     }
 
     pub fn add_block(&mut self, func: &'ll Value, block: &'ll BasicBlock) {
-        let idx = SirBlockIdx::from_usize(self.blocks.len());
-        self.blocks.push(SirBlock{});
-        let sir_func = &mut self.funcs[self.llvm_values[func].func_idx()];
-        sir_func.blocks.push(idx);
-        let existing = self.llvm_blocks.insert(block, idx);
+        let func_idx = self.llvm_values[func].func_idx();
+        let sir_func = &mut self.funcs[func_idx];
+        let block_idx = SirBlockIdx::from_usize(sir_func.blocks.len());
+        sir_func.blocks.push(ykpack::BasicBlock{
+            stmts: Default::default(),
+        });
+        let existing = self.llvm_blocks.insert(block, (func_idx, block_idx));
         debug_assert!(existing.is_none());
     }
 
-    pub fn serialise_into_tcx(&self, tcx: TyCtxt<'tcx>) {
+    pub fn serialise_into_tcx(self, tcx: TyCtxt<'tcx>) {
         let mut buf = Vec::new();
         let mut ec = ykpack::Encoder::from(&mut buf);
 
-        for func in &self.funcs {
-            let blocks: Vec<ykpack::BasicBlock> = func.blocks.iter().map(|_blk| {
-                ykpack::BasicBlock {
-                    stmts: Vec::new(), // FIXME
-                }
-            }).collect();
-            ec.serialise(ykpack::Pack::Body(ykpack::Body {
-                symbol_name: func.symbol_name.clone(),
-                blocks,
-                num_locals: 0, // FIXME
-                num_args: 0, // FIXME
-                flags: 0, // FIXME
-            })).unwrap();
+        for func in self.funcs {
+            ec.serialise(ykpack::Pack::Body(func)).unwrap();
         }
 
         ec.done().unwrap();
