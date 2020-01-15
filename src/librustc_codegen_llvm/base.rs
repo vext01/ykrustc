@@ -173,8 +173,8 @@ pub fn compile_codegen_unit(
                 cx.debuginfo_finalize();
             }
 
-            // Stash the serialised SIR so that we can include it later.
-            cx.sir_cx.replace(Default::default()).map(|sir_cx| sir_cx.serialise_into_tcx(tcx));
+            // Serialise the SIR and stash it inside tcx so that we can include it later.
+            cx.sir_cx.replace(None).map(|sir_cx| sir_cx.serialise_into_tcx(tcx));
         }
 
         ModuleCodegen {

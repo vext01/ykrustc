@@ -1111,7 +1111,7 @@ pub struct GlobalCtxt<'tcx> {
 
     /// A collection of binary blobs constituting the encoded SIR. Due to the workings of the
     /// compiler, there is one per codegen unit.
-    pub encoded_sir: RefCell<Vec<Vec<u8>>>,
+    pub encoded_sir: RefCell<Option<Vec<Vec<u8>>>>,
 }
 
 impl<'tcx> TyCtxt<'tcx> {

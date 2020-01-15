@@ -94,7 +94,7 @@ impl SirCx<'ll> {
         }
 
         ec.done().unwrap();
-        tcx.encoded_sir.borrow_mut().push(buf);
+        tcx.encoded_sir.borrow_mut().as_mut().unwrap().push(buf);
     }
 }
 
@@ -107,10 +107,9 @@ pub fn write_sir<'tcx>(
     let (sir_llcx, sir_llmod) = (&*llvm_module.llcx, llvm_module.llmod());
 
     // Steal the SIR from the tcx and move it into a buffer for LLVM to include.
-    let sir = tcx.encoded_sir.replace(Default::default());
+    let sir = tcx.encoded_sir.replace(None).unwrap();
     let mut buf = Vec::new();
     for cg_sir in sir.into_iter() {
-        debug!("CG sir of length: {}", cg_sir.len());
         buf.extend(cg_sir);
     }
 
