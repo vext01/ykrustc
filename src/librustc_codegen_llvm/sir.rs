@@ -95,11 +95,18 @@ impl SirCx<'ll> {
         let mut ec = ykpack::Encoder::from(&mut buf);
 
         for func in &self.funcs {
-            ec.serialise(ykpack::Pack::Body(
-                    ykpack::Body {
-                        //blocks: Vec::new(),
-                        symbol_name: func.symbol_name.clone(),
-                    })).unwrap();
+            let blocks: Vec<ykpack::BasicBlock> = func.blocks.iter().map(|_blk| {
+                ykpack::BasicBlock {
+                    stmts: Vec::new(), // FIXME
+                }
+            }).collect();
+            ec.serialise(ykpack::Pack::Body(ykpack::Body {
+                symbol_name: func.symbol_name.clone(),
+                blocks,
+                num_locals: 0, // FIXME
+                num_args: 0, // FIXME
+                flags: 0, // FIXME
+            })).unwrap();
         }
 
         ec.done().unwrap();
