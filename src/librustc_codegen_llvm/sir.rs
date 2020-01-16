@@ -1,6 +1,7 @@
-//! FIXME
-
-#![allow(dead_code)]
+//! Serialised Intermideiate Representation (SIR).
+//!
+//! SIR is built in-memory during LLVM code-generation, and finally placed into an ELF section at
+//! link time.
 
 use std::default::Default;
 use rustc_index::{newtype_index, vec::{Idx, IndexVec}};
