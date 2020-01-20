@@ -546,9 +546,9 @@ fn link_natively<'a, B: ArchiveBuilder<'a>>(sess: &'a Session,
     //
     // FIXME For now SIR is only encoded for things which are codegenned at the time a binary
     // executable target is being built. We will need a way to encode SIR for code compiled
-    // externally so that we can trace into rlibs and dyblis etc. When implementing this we will
-    // have to think about where said SIR should live: also in the end executable, or in the
-    // rlib/dylib. Then how does the JIT runtime find this additional SIR?
+    // externally so that we can trace into rlibs and dylibs etc. It's probably best to simply
+    // allow the linker to concatenate the sections from different codegen sessions, but this would
+    // require some kind of up-front pack to tell us how many SIR parts to expect.
     if let Some(sir_mod) = codegen_results.sir_module.as_ref() {
         let sir_path = sir_mod.object.as_ref().unwrap();
         // FIXME it'd be nice if we could figure out a better way to keep the SIR section whilst
