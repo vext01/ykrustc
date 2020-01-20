@@ -633,6 +633,24 @@ pub fn codegen_crate<B: ExtraBackendMethods>(
         };
     }
 
+    if tcx.sir_cx.borrow().is_some() {
+        let sir_cgu_name = cgu_name_builder.build_cgu_name(LOCAL_CRATE,
+            &["crate"],
+            Some("yksir")).to_string();
+        let mut sir_llvm_module = backend.new_metadata(tcx, &sir_cgu_name);
+
+        time(tcx.sess, "write SIR", || {
+            backend.write_sir(tcx, &mut sir_llvm_module);
+        });
+
+        let sir_module = ModuleCodegen {
+            name: sir_cgu_name,
+            module_llvm: sir_llvm_module,
+            kind: ModuleKind::YkSir,
+        };
+        ongoing_codegen.submit_pre_codegened_module_to_llvm(tcx, sir_module);
+    }
+
     ongoing_codegen.codegen_finished(tcx);
 
     // Since the main thread is sometimes blocked during codegen, we keep track

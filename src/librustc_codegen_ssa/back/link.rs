@@ -543,9 +543,22 @@ fn link_natively<'a, B: ArchiveBuilder<'a>>(sess: &'a Session,
     }
 
     // Link Yorick objects into executables.
-    if crate_type == config::CrateType::Executable {
+    //
+    // FIXME For now SIR is only encoded for things which are codegenned at the time a binary
+    // executable target is being built. We will need a way to encode SIR for code compiled
+    // externally so that we can trace into rlibs and dylibs etc. It's probably best to simply
+    // allow the linker to concatenate the sections from different codegen sessions, but this would
+    // require some kind of up-front pack to tell us how many SIR parts to expect.
+    //
+    // FIXME Also when rebuilding after a small change, only the rebuilt code gets SIR. We should
+    // cache the SIR in a file between builds and load the SIR from last time as a starting point,
+    // only updating what changed.
+    if let Some(sir_mod) = codegen_results.sir_module.as_ref() {
+        let sir_path = sir_mod.object.as_ref().unwrap();
+        // FIXME it'd be nice if we could figure out a better way to keep the SIR section whilst
+        // GCing the other sections.
         cmd.arg("-Wl,--no-gc-sections");
-        cmd.args(sess.yk_link_objects.borrow().iter().map(|o| o.path()));
+        cmd.arg(sir_path);
     }
 
     for &(ref k, ref v) in &sess.target.target.options.link_env {

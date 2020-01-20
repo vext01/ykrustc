@@ -115,6 +115,7 @@ pub enum ModuleKind {
     Regular,
     Metadata,
     Allocator,
+    YkSir,
 }
 
 bitflags::bitflags! {
@@ -151,6 +152,7 @@ pub struct CodegenResults {
     pub modules: Vec<CompiledModule>,
     pub allocator_module: Option<CompiledModule>,
     pub metadata_module: Option<CompiledModule>,
+    pub sir_module: Option<CompiledModule>,
     pub crate_hash: Svh,
     pub metadata: rustc::middle::cstore::EncodedMetadata,
     pub windows_subsystem: Option<String>,

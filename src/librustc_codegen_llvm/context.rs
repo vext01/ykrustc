@@ -3,7 +3,6 @@ use crate::llvm;
 use crate::llvm_util;
 use crate::debuginfo;
 use crate::value::Value;
-use crate::sir::SirCx;
 use rustc::dep_graph::DepGraphSafe;
 use rustc::hir;
 
@@ -92,9 +91,6 @@ pub struct CodegenCx<'ll, 'tcx> {
 
     /// A counter that is used for generating local symbol names
     local_gen_sym_counter: Cell<usize>,
-
-    /// SIR generation context for Yorick.
-    pub sir_cx: RefCell<SirCx<'ll>>,
 }
 
 impl<'ll, 'tcx> DepGraphSafe for CodegenCx<'ll, 'tcx> {}
@@ -319,7 +315,6 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
             rust_try_fn: Cell::new(None),
             intrinsics: Default::default(),
             local_gen_sym_counter: Cell::new(0),
-            sir_cx: RefCell::new(SirCx::new()),
         }
     }
 

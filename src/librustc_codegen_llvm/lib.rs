@@ -36,7 +36,7 @@ extern crate rustc_codegen_utils;
 extern crate rustc_codegen_ssa;
 extern crate rustc_fs_util;
 extern crate rustc_driver as _;
-extern crate serialize as rustc_serialize;
+extern crate ykpack;
 
 #[macro_use] extern crate log;
 extern crate smallvec;
@@ -113,6 +113,13 @@ impl ExtraBackendMethods for LlvmCodegenBackend {
         llvm_module: &mut ModuleLlvm,
     ) {
         base::write_compressed_metadata(tcx, metadata, llvm_module)
+    }
+    fn write_sir<'tcx>(
+        &self,
+        tcx: TyCtxt<'tcx>,
+        llvm_module: &mut ModuleLlvm,
+    ) {
+        crate::sir::write_sir(tcx, llvm_module)
     }
     fn codegen_allocator<'tcx>(
         &self,

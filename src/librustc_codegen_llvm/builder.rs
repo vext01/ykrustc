@@ -13,6 +13,7 @@ use rustc::ty::{self, Ty, TyCtxt};
 use rustc::ty::layout::{self, Align, Size, TyLayout};
 use rustc::hir::def_id::DefId;
 use rustc::session::config;
+use rustc::sir;
 use rustc_data_structures::small_c_str::SmallCStr;
 use rustc_codegen_ssa::traits::*;
 use rustc_codegen_ssa::base::to_immediate;
@@ -131,7 +132,12 @@ impl BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
                 name.as_ptr()
             )
         };
-        cx.sir_cx.borrow_mut().add_block(llfn, llbb);
+
+        cx.tcx.with_sir_cx_mut(|sir_cx| {
+            sir_cx.add_block(llfn as *const _ as *const sir::Value,
+                llbb as *const _ as *const sir::BasicBlock);
+        });
+
         bx.position_at_end(llbb);
         bx
     }
