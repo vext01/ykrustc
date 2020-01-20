@@ -15,8 +15,9 @@ use rustc::ty::steal::Steal;
 use rustc::traits;
 use rustc::util::common::{time, ErrorReported};
 use rustc::session::Session;
-use rustc::session::config::{self, CrateType, Input, OutputFilenames, OutputType};
+use rustc::session::config::{self, CrateType, Input, OutputFilenames, OutputType, TracerMode};
 use rustc::session::search_paths::PathKind;
+use rustc::sir::SirCx;
 use rustc_codegen_ssa::back::link::emit_metadata;
 use rustc_codegen_utils::codegen_backend::CodegenBackend;
 use rustc_codegen_utils::link::filename_for_metadata;
@@ -1024,6 +1025,14 @@ pub fn start_codegen<'tcx>(
         tcx.print_debug_stats();
     }
 
+    // If we are putting SIR into the binary or dumping it to disk, then create a SirCx.
+    if tcx.sess.opts.cg.tracer != TracerMode::Off ||
+        tcx.sess.opts.output_types.contains_key(&OutputType::YkSir)
+    {
+        let old = tcx.sir_cx.replace(Some(SirCx::new()));
+        debug_assert!(old.is_none());
+    }
+
     let (metadata, need_metadata_module) = time(tcx.sess, "metadata encoding and writing", || {
         encode_and_write_metadata(tcx, outputs)
     });
@@ -1036,6 +1045,16 @@ pub fn start_codegen<'tcx>(
     if log_enabled!(::log::Level::Info) {
         println!("Post-codegen");
         tcx.print_debug_stats();
+    }
+
+    if tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
+        let sir_cx = tcx.sir_cx.borrow();
+        let sir_cx = sir_cx.as_ref().unwrap();
+
+        if let Err(e) = sir_cx.dump(outputs) {
+            tcx.sess.err(&format!("could not emit SIR: {}", e));
+            tcx.sess.abort_if_errors();
+        }
     }
 
     if tcx.sess.opts.output_types.contains_key(&OutputType::Mir) {

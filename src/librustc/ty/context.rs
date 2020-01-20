@@ -47,6 +47,7 @@ use crate::util::common::ErrorReported;
 use crate::util::nodemap::{DefIdMap, DefIdSet, ItemLocalMap, ItemLocalSet, NodeMap};
 use crate::util::nodemap::{FxHashMap, FxHashSet};
 use crate::util::profiling::SelfProfilerRef;
+use crate::sir::SirCx;
 
 use errors::DiagnosticBuilder;
 use arena::SyncDroplessArena;
@@ -1109,9 +1110,8 @@ pub struct GlobalCtxt<'tcx> {
 
     output_filenames: Arc<OutputFilenames>,
 
-    /// A collection of binary blobs constituting the encoded SIR. Due to the workings of the
-    /// compiler, there is one per codegen unit.
-    pub encoded_sir: RefCell<Option<Vec<Vec<u8>>>>,
+    /// SIR generation context for Yorick.
+    pub sir_cx: RefCell<Option<SirCx>>,
 }
 
 impl<'tcx> TyCtxt<'tcx> {
@@ -1307,7 +1307,7 @@ impl<'tcx> TyCtxt<'tcx> {
             allocation_interner: Default::default(),
             alloc_map: Lock::new(interpret::AllocMap::new()),
             output_filenames: Arc::new(output_filenames.clone()),
-            encoded_sir: Default::default(),
+            sir_cx: Default::default(),
         }
     }
 
@@ -1619,6 +1619,14 @@ impl<'tcx> TyCtxt<'tcx> {
     /// Currently, only NVPTX* targets need it.
     pub fn has_strict_asm_symbol_naming(&self) -> bool {
         self.sess.target.target.arch.contains("nvptx")
+    }
+
+    /// If there is a SirCx, then call the function `f` passing in a mutable refernece to the
+    /// SirCx. Otherwise do nothing.
+    pub fn with_sir_cx_mut<F>(&self, f: F) where F: Fn(&mut SirCx) {
+        if let Some(cx) = self.sir_cx.borrow_mut().as_mut() {
+            f(cx);
+        }
     }
 }
 

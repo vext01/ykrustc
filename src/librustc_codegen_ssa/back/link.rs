@@ -543,11 +543,15 @@ fn link_natively<'a, B: ArchiveBuilder<'a>>(sess: &'a Session,
     }
 
     // Link Yorick objects into executables.
-    // FIXME deal with races, as with metadata linkage.
+    //
+    // FIXME For now SIR is only encoded for things which are codegenned at the time a binary
+    // executable target is being built. We will need a way to encode SIR for code compiled
+    // externally so that we can trace into rlibs and dyblis etc. When implementing this we will
+    // have to think about where said SIR should live: also in the end executable, or in the
+    // rlib/dylib. Then how does the JIT runtime find this additional SIR?
     if let Some(sir_mod) = codegen_results.sir_module.as_ref() {
-        dbg!("link sir");
         let sir_path = sir_mod.object.as_ref().unwrap();
-        // FIXME it'd be nice if we could figure out a better way to keep the sir section whilst
+        // FIXME it'd be nice if we could figure out a better way to keep the SIR section whilst
         // GCing the other sections.
         cmd.arg("-Wl,--no-gc-sections");
         cmd.arg(sir_path);

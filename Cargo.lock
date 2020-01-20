@@ -432,7 +432,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45912881121cb26fad7c38c17ba7daa18764771836b34fab7d3fbd93ed633878"
 dependencies = [
  "num-integer",
- "num-traits 0.2.8",
+ "num-traits",
  "time",
 ]
 
@@ -2163,7 +2163,7 @@ dependencies = [
  "getrandom",
  "hex 0.4.0",
  "log",
- "num-traits 0.1.43",
+ "num-traits",
  "rand 0.7.0",
  "rustc-workspace-hack",
  "rustc_version",
@@ -2218,16 +2218,7 @@ version = "0.1.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e83d528d2677f0518c570baf2b7abdcf0cd2d248860b68507bdcb3e91d4c0cea"
 dependencies = [
- "num-traits 0.2.8",
-]
-
-[[package]]
-name = "num-traits"
-version = "0.1.43"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92e5113e9fd4cc14ded8e499429f396a20f98c772a47cc8622a736e1ec843c31"
-dependencies = [
- "num-traits 0.2.8",
+ "num-traits",
 ]
 
 [[package]]
@@ -3121,7 +3112,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f10b46df14cf1ee1ac7baa4d2fbc2c52c0622a4b82fa8740e37bc452ac0184f"
 dependencies = [
  "byteorder",
- "num-traits 0.2.8",
+ "num-traits",
 ]
 
 [[package]]
@@ -3178,6 +3169,7 @@ dependencies = [
  "smallvec 1.0.0",
  "syntax",
  "syntax_pos",
+ "ykpack",
 ]
 
 [[package]]
@@ -3464,7 +3456,6 @@ name = "rustc_codegen_llvm"
 version = "0.0.0"
 dependencies = [
  "rustc_llvm",
- "ykpack",
 ]
 
 [[package]]
@@ -4972,7 +4963,7 @@ checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 name = "unstable-book-gen"
 version = "0.1.0"
 dependencies = [
- "num-traits 0.2.8",
+ "num-traits",
  "tidy",
 ]
 

@@ -36,7 +36,7 @@ extern crate rustc_codegen_utils;
 extern crate rustc_codegen_ssa;
 extern crate rustc_fs_util;
 extern crate rustc_driver as _;
-extern crate serialize as rustc_serialize;
+extern crate ykpack;
 
 #[macro_use] extern crate log;
 extern crate smallvec;

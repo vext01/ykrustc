@@ -21,6 +21,7 @@ use crate::value::Value;
 use rustc::ty::{self, PolyFnSig};
 use rustc::ty::layout::{FnAbiExt, LayoutOf};
 use rustc::session::config::Sanitizer;
+use rustc::sir;
 use rustc_data_structures::small_c_str::SmallCStr;
 use rustc_codegen_ssa::traits::*;
 
@@ -39,8 +40,10 @@ fn declare_raw_fn(
     let llfn = unsafe {
         llvm::LLVMRustGetOrInsertFunction(cx.llmod, namebuf.as_ptr(), ty)
     };
-    cx.sir_cx.borrow_mut().as_mut().map(|sir_cx|
-        sir_cx.add_func(llfn, String::from(namebuf.as_c_str().to_str().unwrap())));
+
+    cx.tcx.with_sir_cx_mut(|sir_cx|
+        sir_cx.add_func(llfn as *const _ as *const sir::Value,
+                       String::from(namebuf.as_c_str().to_str().unwrap())));
 
     llvm::SetFunctionCallConv(llfn, callconv);
     // Function addresses in Rust are never significant, allowing functions to

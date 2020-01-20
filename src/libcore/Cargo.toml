@@ -20,6 +20,9 @@ path = "../libcore/tests/lib.rs"
 name = "corebenches"
 path = "../libcore/benches/lib.rs"
 
+#[dependencies]
+#arrayvec = { version = "0.5", default-features=false, features = [] }
+
 [dev-dependencies]
 rand = "0.7"
 

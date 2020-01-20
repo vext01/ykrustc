@@ -12,5 +12,3 @@ test = false
 
 [dependencies]
 rustc_llvm = { path = "../librustc_llvm" }
-#ykpack = {git = "https://github.com/softdevteam/yk"}
-ykpack = {path = "../../../yk/ykpack"}

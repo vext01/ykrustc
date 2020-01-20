@@ -172,9 +172,6 @@ pub fn compile_codegen_unit(
             if cx.sess().opts.debuginfo != DebugInfo::None {
                 cx.debuginfo_finalize();
             }
-
-            // Serialise the SIR and stash it inside tcx so that we can include it later.
-            cx.sir_cx.replace(None).map(|sir_cx| sir_cx.serialise_into_tcx(tcx));
         }
 
         ModuleCodegen {
