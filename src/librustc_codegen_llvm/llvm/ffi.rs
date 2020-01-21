@@ -12,8 +12,6 @@ use libc::{c_uint, c_int, size_t, c_char};
 use libc::{c_ulonglong, c_void};
 
 use std::marker::PhantomData;
-use std::hash::{Hash, Hasher};
-use std::ptr;
 
 use super::RustString;
 
@@ -514,19 +512,6 @@ extern { pub type Value; }
 extern { pub type ConstantInt; }
 extern { pub type Metadata; }
 extern { pub type BasicBlock; }
-
-// BasicBlock pointers must be hashable for Yorick SIR generation.
-impl PartialEq for BasicBlock {
-    fn eq(&self, other: &Self) -> bool {
-        ptr::eq(self, other)
-    }
-}
-impl Eq for BasicBlock {}
-impl Hash for BasicBlock {
-    fn hash<H: Hasher>(&self, hasher: &mut H) {
-        (self as *const Self).hash(hasher);
-    }
-}
 
 #[repr(C)]
 pub struct Builder<'a>(InvariantOpaque<'a>);
