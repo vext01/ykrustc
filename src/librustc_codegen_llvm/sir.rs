@@ -58,14 +58,16 @@ pub fn write_sir<'tcx>(
             llvm::LLVMAddGlobal(sir_llmod, common::val_ty(llconst), buf.as_ptr())
         };
 
+        let section_name = format!(".yksir_{}", &*tcx.crate_name(LOCAL_CRATE).as_str());
+
         unsafe {
             llvm::LLVMSetInitializer(llglobal, llconst);
-            let name = SmallCStr::new(SIR_SECTION);
+            let name = SmallCStr::new(&section_name);
             llvm::LLVMSetSection(llglobal, name.as_ptr());
 
             // Following the precedent of write_compressed_metadata(), force empty flags so that
             // the SIR doesn't get loaded into memory.
-            let directive = format!(".section {}", SIR_SECTION);
+            let directive = format!(".section {}, \"\", @progbits", &section_name);
             let directive = CString::new(directive).unwrap();
             llvm::LLVMSetModuleInlineAsm(sir_llmod, directive.as_ptr())
         }

@@ -60,6 +60,7 @@ pub struct ModuleCodegen<M> {
 }
 
 pub const METADATA_FILENAME: &str = "rust.metadata.bin";
+pub const SIR_FILENAME: &str = "yksir.bin";
 pub const RLIB_BYTECODE_EXTENSION: &str = "bc.z";
 
 
