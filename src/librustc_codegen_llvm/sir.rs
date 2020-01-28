@@ -40,7 +40,12 @@ pub fn write_sir<'tcx>(
         let mut ec = ykpack::Encoder::from(&mut buf);
 
         for func in sir_cx.funcs {
-            ec.serialise(ykpack::Pack::Body(func)).unwrap();
+            // Often there are function declarations with no blocks. I think these are call targets
+            // from other crates, which have to be declared to keep LLVM happy. There's no use in
+            // serialising these "empty functions" and they clash with the real declarations.
+            if !func.blocks.is_empty() {
+                ec.serialise(ykpack::Pack::Body(func)).unwrap();
+            }
         }
 
         ec.done().unwrap();
