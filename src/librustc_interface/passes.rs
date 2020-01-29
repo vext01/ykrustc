@@ -15,7 +15,7 @@ use rustc::ty::steal::Steal;
 use rustc::traits;
 use rustc::util::common::{time, ErrorReported};
 use rustc::session::Session;
-use rustc::session::config::{self, CrateType, Input, OutputFilenames, OutputType, TracerMode};
+use rustc::session::config::{self, CrateType, Input, OutputFilenames, OutputType};
 use rustc::session::search_paths::PathKind;
 use rustc::sir::SirCx;
 use rustc_codegen_ssa::back::link::emit_metadata;
@@ -1026,9 +1026,7 @@ pub fn start_codegen<'tcx>(
     }
 
     // If we are putting SIR into the binary or dumping it to disk, then create a SirCx.
-    if tcx.sess.opts.cg.tracer != TracerMode::Off ||
-        tcx.sess.opts.output_types.contains_key(&OutputType::YkSir)
-    {
+    if tcx.sess.opts.cg.tracer.encode_sir() || tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
         let old = tcx.sir_cx.replace(Some(SirCx::new()));
         debug_assert!(old.is_none());
     }
