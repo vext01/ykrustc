@@ -42,7 +42,7 @@ fn declare_raw_fn(
     };
 
     cx.tcx.with_sir_cx_mut(|sir_cx|
-        sir_cx.add_func(llfn as *const _ as *const sir::Value,
+        sir_cx.add_func(llfn as *const llvm::Value as *const sir::Value,
                        String::from(namebuf.as_c_str().to_str().unwrap())));
 
     llvm::SetFunctionCallConv(llfn, callconv);

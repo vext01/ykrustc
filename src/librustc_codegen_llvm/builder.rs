@@ -134,8 +134,8 @@ impl BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
         };
 
         cx.tcx.with_sir_cx_mut(|sir_cx| {
-            sir_cx.add_block(llfn as *const _ as *const sir::Value,
-                llbb as *const _ as *const sir::BasicBlock);
+            sir_cx.add_block(llfn as *const llvm::Value as *const sir::Value,
+                llbb as *const llvm::BasicBlock as *const sir::BasicBlock);
         });
 
         bx.position_at_end(llbb);
