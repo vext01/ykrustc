@@ -106,14 +106,6 @@ pub enum TracerMode {
 }
 
 impl TracerMode {
-    /// Does this mode require SIR to be encoded into the resulting binary?
-    pub fn encode_sir(&self) -> bool {
-        match self {
-            TracerMode::Off => false,
-            TracerMode::Software | TracerMode::Hardware => true,
-        }
-    }
-
     /// Does this mode require DILabels for SIR mapping?
     pub fn sir_labels(&self) -> bool {
         match self {
