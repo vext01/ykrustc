@@ -172,6 +172,10 @@ pub fn compile_codegen_unit(
             if cx.sess().opts.debuginfo != DebugInfo::None {
                 cx.debuginfo_finalize();
             }
+
+            if let Some(sir_cx) = cx.sir_cx.replace(None) {
+                cx.tcx.finished_sir_cxs.borrow_mut().push(sir_cx);
+            }
         }
 
         ModuleCodegen {

@@ -5,8 +5,6 @@
 
 use std::default::Default;
 use std::io::{self, Write};
-use std::fs::File;
-use crate::session::config::{OutputFilenames, OutputType};
 use rustc_index::{newtype_index, vec::{Idx, IndexVec}};
 use rustc_data_structures::fx::FxHashMap;
 use ykpack;
@@ -92,11 +90,9 @@ impl SirCx {
 
     /// Dump SIR to text file.
     /// Used in tests and for debugging.
-    pub fn dump(&self, outputs: &OutputFilenames) -> Result<(), io::Error> {
-        let mut file = File::create(outputs.path(OutputType::YkSir))?;
-
+    pub fn dump(&self, dest: &mut dyn Write) -> Result<(), io::Error> {
         for func in &self.funcs {
-            writeln!(file, "{}", func)?;
+            writeln!(dest, "{}", func)?;
         }
 
         Ok(())

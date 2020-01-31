@@ -45,7 +45,7 @@ pub trait ExtraBackendMethods: CodegenBackend + WriteBackendMethods + Sized + Se
     fn write_sir<'tcx>(
         &self,
         tcx: TyCtxt<'tcx>,
-        llvm_module: &mut Self::Module,
+        sir_mod: &mut Self::Module,
     );
     fn codegen_allocator<'tcx>(
         &self,

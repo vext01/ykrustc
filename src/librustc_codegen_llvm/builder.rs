@@ -133,7 +133,7 @@ impl BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
             )
         };
 
-        cx.tcx.with_sir_cx_mut(|sir_cx| {
+        cx.with_sir_cx_mut(|sir_cx| {
             sir_cx.add_block(llfn as *const llvm::Value as *const sir::Value,
                 llbb as *const llvm::BasicBlock as *const sir::BasicBlock);
         });

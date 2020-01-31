@@ -16,6 +16,7 @@ use crate::value::Value;
 use crate::llvm::{self, BasicBlock};
 use crate::{common, ModuleLlvm};
 use std::ffi::CString;
+use rustc_codegen_ssa::{ModuleCodegen, ModuleKind};
 use ykpack;
 
 const SIR_SECTION: &str = ".yk_sir";
@@ -24,57 +25,50 @@ const SIR_SECTION: &str = ".yk_sir";
 /// This is based on write_compressed_metadata().
 pub fn write_sir<'tcx>(
     tcx: TyCtxt<'tcx>,
-    llvm_module: &mut ModuleLlvm,
+    sir_llvm_module: &mut ModuleLlvm,
 ) {
-    let (sir_llcx, sir_llmod) = (&*llvm_module.llcx, llvm_module.llmod());
+    let sir_cxs = tcx.finished_sir_cxs.replace(Vec::new());
+    let mut buf = Vec::new();
+    let mut encoder = ykpack::Encoder::from(&mut buf);
 
-    // If we are dumping SIR, we are not actually generating code, so serialisation isn't
-    // necessary. We also leave the sir_cx in place for the dumping code to pick up.
-    if tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
-        return;
-    }
-
-    // Note that we move the sir_cx out so that we serialise without copying.
-    if let Some(sir_cx) = tcx.sir_cx.replace(None) {
-        let mut buf = Vec::new();
-        let mut ec = ykpack::Encoder::from(&mut buf);
-
+    for sir_cx in sir_cxs.into_iter() {
         for func in sir_cx.funcs {
-            // Often there are function declarations with no blocks. I think these are call targets
-            // from other crates, which have to be declared to keep LLVM happy. There's no use in
-            // serialising these "empty functions" and they clash with the real declarations.
+            // Often there are function declarations with no blocks. I think these are call
+            // targets from other crates or compilation units, which have to be declared to
+            // keep LLVM happy. There's no use in serialising these "empty functions" and they
+            // clash with the real declarations.
             if !func.blocks.is_empty() {
-                ec.serialise(ykpack::Pack::Body(func)).unwrap();
+                encoder.serialise(ykpack::Pack::Body(func)).unwrap();
             }
         }
+    }
 
-        ec.done().unwrap();
+    encoder.done().unwrap();
 
-        let llmeta = common::bytes_in_context(sir_llcx, &buf);
-        let llconst = common::struct_in_context(sir_llcx, &[llmeta], false);
+    let (sir_llcx, sir_llmod) = (&*sir_llvm_module.llcx, sir_llvm_module.llmod());
+    let llmeta = common::bytes_in_context(sir_llcx, &buf);
+    let llconst = common::struct_in_context(sir_llcx, &[llmeta], false);
 
-        //// Borrowed from exported_symbols::metadata_symbol_name().
-        let sym_name = format!("yksir_{}_{}",
-            tcx.original_crate_name(LOCAL_CRATE),
-            tcx.crate_disambiguator(LOCAL_CRATE).to_fingerprint().to_hex());
+    // Borrowed from exported_symbols::metadata_symbol_name().
+    let sym_name = format!("yksir_{}_{}",
+        tcx.original_crate_name(LOCAL_CRATE),
+        tcx.crate_disambiguator(LOCAL_CRATE).to_fingerprint().to_hex());
 
-        let buf = CString::new(sym_name).unwrap();
-        let llglobal = unsafe {
-            llvm::LLVMAddGlobal(sir_llmod, common::val_ty(llconst), buf.as_ptr())
-        };
+    let buf = CString::new(sym_name).unwrap();
+    let llglobal = unsafe {
+        llvm::LLVMAddGlobal(sir_llmod, common::val_ty(llconst), buf.as_ptr())
+    };
 
-        let section_name = format!(".yksir_{}", &*tcx.crate_name(LOCAL_CRATE).as_str());
+    let section_name = format!(".yksir_{}", &*tcx.crate_name(LOCAL_CRATE).as_str());
+    unsafe {
+        llvm::LLVMSetInitializer(llglobal, llconst);
+        let name = SmallCStr::new(&section_name);
+        llvm::LLVMSetSection(llglobal, name.as_ptr());
 
-        unsafe {
-            llvm::LLVMSetInitializer(llglobal, llconst);
-            let name = SmallCStr::new(&section_name);
-            llvm::LLVMSetSection(llglobal, name.as_ptr());
-
-            // Following the precedent of write_compressed_metadata(), force empty flags so that
-            // the SIR doesn't get loaded into memory.
-            let directive = format!(".section {}, \"\", @progbits", &section_name);
-            let directive = CString::new(directive).unwrap();
-            llvm::LLVMSetModuleInlineAsm(sir_llmod, directive.as_ptr())
-        }
+        // Following the precedent of write_compressed_metadata(), force empty flags so that
+        // the SIR doesn't get loaded into memory.
+        let directive = format!(".section {}, \"\", @progbits", &section_name);
+        let directive = CString::new(directive).unwrap();
+        llvm::LLVMSetModuleInlineAsm(sir_llmod, directive.as_ptr())
     }
 }

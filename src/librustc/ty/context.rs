@@ -47,7 +47,6 @@ use crate::util::common::ErrorReported;
 use crate::util::nodemap::{DefIdMap, DefIdSet, ItemLocalMap, ItemLocalSet, NodeMap};
 use crate::util::nodemap::{FxHashMap, FxHashSet};
 use crate::util::profiling::SelfProfilerRef;
-use crate::sir::SirCx;
 
 use errors::DiagnosticBuilder;
 use arena::SyncDroplessArena;
@@ -60,7 +59,6 @@ use rustc_data_structures::sharded::ShardedHashMap;
 use rustc_data_structures::sync::{Lrc, Lock, WorkerLocal};
 use std::any::Any;
 use std::borrow::Borrow;
-use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::hash_map::{self, Entry};
 use std::hash::{Hash, Hasher};
@@ -77,6 +75,8 @@ use syntax::source_map::MultiSpan;
 use syntax::feature_gate;
 use syntax::symbol::{Symbol, kw, sym};
 use syntax_pos::Span;
+use crate::sir::SirCx;
+use std::cell::RefCell;
 
 pub struct AllArenas {
     pub interner: SyncDroplessArena,
@@ -1110,8 +1110,7 @@ pub struct GlobalCtxt<'tcx> {
 
     output_filenames: Arc<OutputFilenames>,
 
-    /// SIR generation context for Yorick.
-    pub sir_cx: RefCell<Option<SirCx>>,
+    pub finished_sir_cxs: RefCell<Vec<SirCx>>,
 }
 
 impl<'tcx> TyCtxt<'tcx> {
@@ -1307,7 +1306,7 @@ impl<'tcx> TyCtxt<'tcx> {
             allocation_interner: Default::default(),
             alloc_map: Lock::new(interpret::AllocMap::new()),
             output_filenames: Arc::new(output_filenames.clone()),
-            sir_cx: Default::default(),
+            finished_sir_cxs: RefCell::new(Vec::new()),
         }
     }
 
@@ -1619,14 +1618,6 @@ impl<'tcx> TyCtxt<'tcx> {
     /// Currently, only NVPTX* targets need it.
     pub fn has_strict_asm_symbol_naming(&self) -> bool {
         self.sess.target.target.arch.contains("nvptx")
-    }
-
-    /// If there is a SirCx, then call the function `f` passing in a mutable refernece to the
-    /// SirCx. Otherwise do nothing.
-    pub fn with_sir_cx_mut<F>(&self, f: F) where F: Fn(&mut SirCx) {
-        if let Some(cx) = self.sir_cx.borrow_mut().as_mut() {
-            f(cx);
-        }
     }
 }
 

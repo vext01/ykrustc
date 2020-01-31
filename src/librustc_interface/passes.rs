@@ -17,7 +17,6 @@ use rustc::util::common::{time, ErrorReported};
 use rustc::session::Session;
 use rustc::session::config::{self, CrateType, Input, OutputFilenames, OutputType};
 use rustc::session::search_paths::PathKind;
-use rustc::sir::SirCx;
 use rustc_codegen_ssa::back::link::emit_metadata;
 use rustc_codegen_utils::codegen_backend::CodegenBackend;
 use rustc_codegen_utils::link::filename_for_metadata;
@@ -1025,12 +1024,6 @@ pub fn start_codegen<'tcx>(
         tcx.print_debug_stats();
     }
 
-    // If we are putting SIR into the binary or dumping it to disk, then create a SirCx.
-    if tcx.sess.opts.cg.tracer.encode_sir() || tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
-        let old = tcx.sir_cx.replace(Some(SirCx::new()));
-        debug_assert!(old.is_none());
-    }
-
     let (metadata, need_metadata_module) = time(tcx.sess, "metadata encoding and writing", || {
         encode_and_write_metadata(tcx, outputs)
     });
@@ -1045,12 +1038,20 @@ pub fn start_codegen<'tcx>(
         tcx.print_debug_stats();
     }
 
+    // If the user has requested to just dump SIR to disk, then let's do that.
     if tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
-        let sir_cx = tcx.sir_cx.borrow();
-        let sir_cx = sir_cx.as_ref().unwrap();
-
-        if let Err(e) = sir_cx.dump(outputs) {
-            tcx.sess.err(&format!("could not emit SIR: {}", e));
+        let res = fs::File::create(outputs.path(OutputType::YkSir)).and_then(|mut sir_file| {
+            let sir_cxs = tcx.finished_sir_cxs.replace(Default::default());
+            let mut cu = 0;
+            for sir_cx in sir_cxs.into_iter() {
+                writeln!(sir_file, "### Compilation Unit: {}", cu)?;
+                sir_cx.dump(&mut sir_file)?;
+                cu += 1;
+            }
+            Ok(())
+        });
+        if let Err(e) = res {
+            tcx.sess.err(&format!("could not dump SIR to text file: {}", e));
             tcx.sess.abort_if_errors();
         }
     }
