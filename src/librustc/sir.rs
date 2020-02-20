@@ -16,6 +16,7 @@ use ykpack;
 extern "C" {
     pub type Value;
 }
+
 extern "C" {
     pub type BasicBlock;
 }
@@ -66,13 +67,22 @@ impl SirCx {
         }
     }
 
+    // FIXME add type
+    pub fn add_local(&mut self, llfn: *const Value) {
+        let func_idx = self.llvm_values[&llfn].func_idx();
+        let sir_func = &mut self.funcs[func_idx];
+        sir_func.locals.push(());
+    }
+
     pub fn add_func(&mut self, value: *const Value, symbol_name: String) {
         let idx = SirFuncIdx::from_usize(self.funcs.len());
 
         self.funcs.push(ykpack::Body {
             symbol_name,
             blocks: Default::default(),
-            flags: 0, // Set later.
+            // The following fields are populated later.
+            flags: 0,
+            locals: Default::default(),
         });
         let existing = self.llvm_values.insert(value, SirValue::Func(idx));
         // In theory, if a function is declared twice, then LLVM should return the same pointer

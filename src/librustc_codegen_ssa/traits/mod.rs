@@ -48,6 +48,7 @@ use rustc_target::spec::HasTargetSpec;
 use std::fmt;
 
 pub trait CodegenObject: Copy + PartialEq + fmt::Debug {}
+
 impl<T: Copy + PartialEq + fmt::Debug> CodegenObject for T {}
 
 pub trait CodegenMethods<'tcx>:

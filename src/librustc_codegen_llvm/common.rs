@@ -9,6 +9,7 @@ use crate::type_of::LayoutLlvmExt;
 use crate::value::Value;
 use log::debug;
 use rustc::bug;
+use rustc::sir;
 use rustc_codegen_ssa::traits::*;
 
 use crate::consts::const_alloc_to_llvm;
@@ -92,6 +93,10 @@ impl BackendTypes for CodegenCx<'ll, 'tcx> {
 
     type DIScope = &'ll llvm::debuginfo::DIScope;
     type DIVariable = &'ll llvm::debuginfo::DIVariable;
+
+    fn function_to_llvm_sir_value(func: Self::Function) -> *const sir::Value {
+        func as *const Value as *const sir::Value
+    }
 }
 
 impl CodegenCx<'ll, 'tcx> {

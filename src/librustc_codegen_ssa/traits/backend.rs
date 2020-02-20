@@ -2,6 +2,7 @@ use super::write::WriteBackendMethods;
 use super::CodegenObject;
 use crate::ModuleCodegen;
 
+use rustc::sir;
 use rustc::middle::cstore::EncodedMetadata;
 use rustc::session::{config, Session};
 use rustc::ty::layout::{HasTyCtxt, LayoutOf, TyLayout};
@@ -26,6 +27,8 @@ pub trait BackendTypes {
     type DIScope: Copy;
     //type DISubprogram: Copy;
     type DIVariable: Copy;
+
+    fn function_to_llvm_sir_value(func: Self::Function) -> *const sir::Value;
 }
 
 pub trait Backend<'tcx>:

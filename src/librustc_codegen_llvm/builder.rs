@@ -59,6 +59,10 @@ impl BackendTypes for Builder<'_, 'll, 'tcx> {
 
     type DIScope = <CodegenCx<'ll, 'tcx> as BackendTypes>::DIScope;
     type DIVariable = <CodegenCx<'ll, 'tcx> as BackendTypes>::DIVariable;
+
+    fn function_to_llvm_sir_value(func: Self::Function) -> *const sir::Value {
+        <CodegenCx<'ll, 'tcx> as BackendTypes>::function_to_llvm_sir_value(func)
+    }
 }
 
 impl ty::layout::HasDataLayout for Builder<'_, '_, '_> {

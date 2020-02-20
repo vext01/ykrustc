@@ -227,6 +227,11 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
             .collect()
     };
 
+    // Record local types into SIR.
+    for _l in fx.locals.iter() {
+        cx.with_sir_cx_mut(|sir_cx| sir_cx.add_local(Bx::function_to_llvm_sir_value(llfn)));
+    }
+
     // Apply debuginfo to the newly allocated locals.
     fx.debug_introduce_locals(&mut bx);
 
