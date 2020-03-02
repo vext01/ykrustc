@@ -13,6 +13,8 @@
 //!   but one `llvm::Type` corresponds to many `Ty`s; for instance, `tup(int, int,
 //!   int)` and `rec(x=int, y=int, z=int)` will have the same `llvm::Type`.
 
+#![allow(unused_imports)]
+
 use super::ModuleLlvm;
 
 use crate::attributes;
@@ -154,57 +156,57 @@ pub fn compile_codegen_unit(
                 cx.create_used_variable()
             }
 
-            if cx.has_debug() {
-                let mut labels = Vec::new();
-                if let Some(sir_cx) = cx.sir_cx.borrow_mut().as_mut() {
-                    for (func_idx, blocks) in
-                        sir_cx.funcs_and_blocks_deterministic().iter_enumerated()
-                    {
-                        let sir_func = &sir_cx.funcs[func_idx];
-                        let sym_name = &sir_func.symbol_name;
+            //if cx.has_debug() {
+            //    let mut labels = Vec::new();
+            //    if let Some(sir_cx) = cx.sir_cx.borrow_mut().as_mut() {
+            //        for (func_idx, blocks) in
+            //            sir_cx.funcs_and_blocks_deterministic().iter_enumerated()
+            //        {
+            //            let sir_func = &sir_cx.funcs[func_idx];
+            //            let sym_name = &sir_func.symbol_name;
 
-                        // Don't label the main wrapper as it causes label insertion to crash and
-                        // is never a candidate for tracing.
-                        if sym_name == "main" {
-                            continue;
-                        }
+            //            // Don't label the main wrapper as it causes label insertion to crash and
+            //            // is never a candidate for tracing.
+            //            if sym_name == "main" {
+            //                continue;
+            //            }
 
-                        // When --test is passed, the auto-generated entry point causes our label
-                        // insertion to crash. We never want to trace test harnesses anyway, so
-                        // skip them.
-                        if tcx.sess.opts.test {
-                            let entry_fn = tcx.entry_fn(LOCAL_CRATE).unwrap().0;
-                            let entry_inst = Instance::mono(tcx, entry_fn);
-                            let entry_sym = &*tcx.symbol_name(entry_inst).name.as_str();
-                            if sym_name == entry_sym {
-                                continue;
-                            }
-                        }
+            //            // When --test is passed, the auto-generated entry point causes our label
+            //            // insertion to crash. We never want to trace test harnesses anyway, so
+            //            // skip them.
+            //            if tcx.sess.opts.test {
+            //                let entry_fn = tcx.entry_fn(LOCAL_CRATE).unwrap().0;
+            //                let entry_inst = Instance::mono(tcx, entry_fn);
+            //                let entry_sym = &*tcx.symbol_name(entry_inst).name.as_str();
+            //                if sym_name == entry_sym {
+            //                    continue;
+            //                }
+            //            }
 
-                        for (bb_idx, bb) in blocks.iter_enumerated() {
-                            let llbb = unsafe {
-                                &*(*bb as *const sir::BasicBlock as *const llvm::BasicBlock)
-                            };
+            //            for (bb_idx, bb) in blocks.iter_enumerated() {
+            //                let llbb = unsafe {
+            //                    &*(*bb as *const sir::BasicBlock as *const llvm::BasicBlock)
+            //                };
 
-                            let lbl_name = CString::new(format!(
-                                "{}:{}:{}",
-                                BLOCK_LABEL_PREFIX,
-                                sym_name,
-                                bb_idx.index()
-                            ))
-                            .unwrap();
-                            labels.push((llbb, lbl_name));
-                        }
-                    }
-                }
-                // Only apply labels after collecting them in the previous step to avoid a double
-                // mutable borrow of sir_cx.
-                let mut bx = Builder::with_cx(&cx);
-                for (llbb, lbl_name) in labels {
-                    bx.position_at_end(llbb);
-                    bx.add_yk_block_label(llbb, lbl_name);
-                }
-            }
+            //                let lbl_name = CString::new(format!(
+            //                    "{}:{}:{}",
+            //                    BLOCK_LABEL_PREFIX,
+            //                    sym_name,
+            //                    bb_idx.index()
+            //                ))
+            //                .unwrap();
+            //                labels.push((llbb, lbl_name));
+            //            }
+            //        }
+            //    }
+            //    // Only apply labels after collecting them in the previous step to avoid a double
+            //    // mutable borrow of sir_cx.
+            //    let mut bx = Builder::with_cx(&cx);
+            //    for (llbb, lbl_name) in labels {
+            //        bx.position_at_end(llbb);
+            //        bx.add_yk_block_label(llbb, lbl_name);
+            //    }
+            //}
 
             // Finalize debuginfo
             if cx.sess().opts.debuginfo != DebugInfo::None {

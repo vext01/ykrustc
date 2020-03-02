@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use super::operand::OperandRef;
 use super::operand::OperandValue::{Immediate, Pair, Ref};
 use super::place::PlaceRef;
@@ -18,6 +20,7 @@ use rustc_index::vec::Idx;
 use rustc_span::{source_map::Span, symbol::Symbol};
 use rustc_target::abi::call::{ArgAbi, FnAbi, PassMode};
 use rustc_target::spec::abi::Abi;
+use std::ffi::CString;
 
 use std::borrow::Cow;
 
@@ -776,6 +779,18 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         for statement in &data.statements {
             bx = self.codegen_statement(bx, statement);
         }
+
+        // Makes a seg FIXIT
+        //if !bx.tcx().def_path_str(self.instance.def_id()).contains("drop_in_place") {
+        //    use ykpack::BLOCK_LABEL_PREFIX;
+        //    let lbl_name = CString::new(format!(
+        //            "NEW_{}:{}:{}",
+        //            BLOCK_LABEL_PREFIX,
+        //            bx.cx().tcx().symbol_name(self.instance),
+        //            bb.index()
+        //    )).unwrap();
+        //    bx.add_yk_block_label(lbl_name);
+        //}
 
         self.codegen_terminator(bx, bb, data.terminator());
     }

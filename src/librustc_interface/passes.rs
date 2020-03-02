@@ -972,12 +972,8 @@ pub fn start_codegen<'tcx>(
     // If the user has requested to just dump SIR to disk, then let's do that.
     if tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
         let res = fs::File::create(outputs.path(OutputType::YkSir)).and_then(|mut sir_file| {
-            let sir_cxs = tcx.finished_sir_cxs.replace(Default::default());
-            let mut cu = 0;
-            for sir_cx in sir_cxs.into_iter() {
-                writeln!(sir_file, "### Compilation Unit: {}", cu)?;
-                sir_cx.dump(&mut sir_file)?;
-                cu += 1;
+            for f in tcx.sir_funcs.replace(Default::default()) {
+                writeln!(sir_file, "{}", f)?;
             }
             Ok(())
         });

@@ -82,6 +82,7 @@ use std::iter;
 use std::mem;
 use std::ops::{Bound, Deref};
 use std::sync::Arc;
+use ykpack;
 
 type InternedSet<'tcx, T> = ShardedHashMap<Interned<'tcx, T>, ()>;
 
@@ -1027,6 +1028,8 @@ pub struct GlobalCtxt<'tcx> {
 
     /// As each codegen unit completes, it copies the SIR here for serialisation later.
     pub finished_sir_cxs: RefCell<Vec<SirCx>>,
+
+    pub sir_funcs: RefCell<Vec<ykpack::Body>>,
 }
 
 impl<'tcx> TyCtxt<'tcx> {
@@ -1222,6 +1225,7 @@ impl<'tcx> TyCtxt<'tcx> {
             alloc_map: Lock::new(interpret::AllocMap::new()),
             output_filenames: Arc::new(output_filenames.clone()),
             finished_sir_cxs: RefCell::new(Vec::new()),
+            sir_funcs: RefCell::new(Default::default()),
         }
     }
 

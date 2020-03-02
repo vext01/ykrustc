@@ -12,7 +12,7 @@ use rustc_codegen_ssa::traits::*;
 use crate::callee::get_fn;
 use rustc::bug;
 use rustc::mir::mono::CodegenUnit;
-use rustc::session::config::{self, CFGuard, DebugInfo, OutputType};
+use rustc::session::config::{self, CFGuard, DebugInfo};
 use rustc::session::Session;
 use rustc::ty::layout::{
     FnAbiExt, HasParamEnv, LayoutError, LayoutOf, PointeeInfo, Size, TyLayout, VariantIdx,
@@ -23,7 +23,7 @@ use rustc_data_structures::base_n;
 use rustc_data_structures::const_cstr;
 use rustc_data_structures::fx::FxHashMap;
 use rustc_data_structures::small_c_str::SmallCStr;
-use rustc_hir::{def_id::LOCAL_CRATE, Unsafety};
+use rustc_hir::Unsafety;
 use rustc_target::spec::{HasTargetSpec, Target};
 
 use crate::abi::Abi;
@@ -313,14 +313,15 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
 
         // If we are putting SIR into the binary or dumping it to disk, then create a SirCx. Also
         // skip generating SIR for build scripts (we will never trace them).
-        let sir_cx = if (tcx.sess.opts.cg.tracer.encode_sir()
-            || tcx.sess.opts.output_types.contains_key(&OutputType::YkSir))
-            && tcx.crate_name(LOCAL_CRATE).as_str() != "build_script_build"
-        {
-            Some(SirCx::new())
-        } else {
-            None
-        };
+        //let sir_cx = if (tcx.sess.opts.cg.tracer.encode_sir()
+        //    || tcx.sess.opts.output_types.contains_key(&OutputType::YkSir))
+        //    && tcx.crate_name(LOCAL_CRATE).as_str() != "build_script_build"
+        //{
+        //    Some(SirCx::new())
+        //} else {
+        //    None
+        //};
+        let sir_cx = None; // Disable for now.
 
         CodegenCx {
             tcx,

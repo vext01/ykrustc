@@ -14,6 +14,7 @@ use self::analyze::CleanupKind;
 use self::debuginfo::{FunctionDebugContext, PerLocalVarDebugInfo};
 use self::place::PlaceRef;
 use rustc::mir::traversal;
+use crate::sir2::SirFuncCx;
 
 use self::operand::{OperandRef, OperandValue};
 
@@ -81,6 +82,8 @@ pub struct FunctionCx<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> {
 
     /// Caller location propagated if this function has `#[track_caller]`.
     caller_location: Option<OperandRef<'tcx, Bx::Value>>,
+
+    pub sir_func_cx: Option<SirFuncCx>,
 }
 
 impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
@@ -170,6 +173,11 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
 
     let (landing_pads, funclets) = create_funclets(&mir, &mut bx, &cleanup_kinds, &block_bxs);
     let mir_body: &mir::Body<'_> = *mir;
+
+    // FIXME: not always.
+    let sym_name = format!("new__{}", cx.tcx().symbol_name(instance).name.as_str());
+    let sir_func_cx = Some(SirFuncCx::new(sym_name));
+
     let mut fx = FunctionCx {
         instance,
         mir,
@@ -186,6 +194,7 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
         debug_context,
         per_local_var_debug_info: None,
         caller_location: None,
+        sir_func_cx,
     };
 
     fx.per_local_var_debug_info = fx.compute_per_local_var_debug_info();
@@ -254,6 +263,10 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
                 bx.delete_basic_block(fx.blocks[bb]);
             }
         }
+    }
+
+    if let Some(sfcx) = fx.sir_func_cx {
+        cx.tcx().sir_funcs.borrow_mut().push(sfcx.func);
     }
 }
 

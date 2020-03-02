@@ -1859,7 +1859,6 @@ extern "C" {
     pub fn LLVMRustAddYkBlockLabel(
         Builder: &Builder<'a>,
         DIBuilder: &DIBuilder<'a>,
-        Block: &BasicBlock,
         Name: *const c_char,
     );
 

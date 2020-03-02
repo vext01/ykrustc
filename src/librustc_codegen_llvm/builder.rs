@@ -177,11 +177,12 @@ impl BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
         });
     }
 
-    fn add_yk_block_label(&mut self, block: &'ll BasicBlock, lbl_name: CString) {
-        let dbg_cx = self.cx().dbg_cx.as_ref().unwrap();
-        let di_bldr = dbg_cx.get_builder();
-        unsafe {
-            llvm::LLVMRustAddYkBlockLabel(self.llbuilder, di_bldr, block, lbl_name.as_ptr());
+    fn add_yk_block_label(&mut self, lbl_name: CString) {
+        if let Some(dbg_cx) = self.cx().dbg_cx.as_ref() {
+            let di_bldr = dbg_cx.get_builder();
+            unsafe {
+                llvm::LLVMRustAddYkBlockLabel(self.llbuilder, di_bldr, lbl_name.as_ptr());
+            }
         }
     }
 

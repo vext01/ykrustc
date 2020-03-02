@@ -977,10 +977,9 @@ extern "C" int64_t LLVMRustDIBuilderCreateOpPlusUconst() {
 // Returns false if no label was added (e.g. if the BasicBlock is empty or is a
 // LandingPad), or true otherwise.
 extern "C" bool LLVMRustAddYkBlockLabel(LLVMBuilderRef Builder,
-        LLVMRustDIBuilderRef DBuilder, LLVMBasicBlockRef Block, char *Name) {
+        LLVMRustDIBuilderRef DBuilder, char *Name) {
 
-    // Use C++ call FIXME
-    BasicBlock *B = unwrap(Block);
+    BasicBlock *B = unwrap(Builder)->GetInsertBlock();
     Function *f = B->getParent();
     DISubprogram *SP = f->getSubprogram();
     auto Loc = DebugLoc::get(0, 0, SP);
