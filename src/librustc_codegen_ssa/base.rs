@@ -716,12 +716,8 @@ pub fn codegen_crate<B: ExtraBackendMethods>(
 
     // If we generated Sir and we are not dumping it textually, then encode it into an LLVM module
     // for later linkage.
-    // FIXME dumping code needs to move up here I think. Or if it's done per cgu, then we need to
-    // store it in the codegencx and move it up only if we don't dump it...
-    if !tcx.sess.opts.output_types.contains_key(&OutputType::YkSir)
-        && !tcx.sir_funcs.borrow().is_empty()
+    if !tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) && !tcx.sir.is_empty()
     {
-        dbg!("write_sir");
         let sir_cgu_name =
             cgu_name_builder.build_cgu_name(LOCAL_CRATE, &["crate"], Some("yksir")).to_string();
         let mut sir_module = backend.new_metadata(tcx, &sir_cgu_name);

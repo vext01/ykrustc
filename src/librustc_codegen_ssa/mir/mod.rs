@@ -14,7 +14,7 @@ use self::analyze::CleanupKind;
 use self::debuginfo::{FunctionDebugContext, PerLocalVarDebugInfo};
 use self::place::PlaceRef;
 use rustc::mir::traversal;
-use crate::sir2::SirFuncCx;
+use rustc::sir::{SirFuncCx, Sir};
 
 use self::operand::{OperandRef, OperandValue};
 
@@ -174,9 +174,11 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
     let (landing_pads, funclets) = create_funclets(&mir, &mut bx, &cleanup_kinds, &block_bxs);
     let mir_body: &mir::Body<'_> = *mir;
 
-    // FIXME: not always.
-    let sym_name = format!("new__{}", cx.tcx().symbol_name(instance).name.as_str());
-    let sir_func_cx = Some(SirFuncCx::new(sym_name));
+    let sir_func_cx = if Sir::is_required(cx.tcx()) {
+        Some(SirFuncCx::new(cx.tcx(), &instance))
+    } else {
+        None
+    };
 
     let mut fx = FunctionCx {
         instance,
@@ -266,7 +268,13 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
     }
 
     if let Some(sfcx) = fx.sir_func_cx {
-        cx.tcx().sir_funcs.borrow_mut().push(sfcx.func);
+        // Often there are function declarations with no blocks. I think these are call targets
+        // from other crates or compilation units, which have to be declared to keep LLVM happy.
+        // There's no use in serialising these "empty functions" and they clash with the real
+        // declarations.
+        if !sfcx.is_empty() {
+            cx.tcx().sir.funcs.borrow_mut().push(sfcx.func);
+        }
     }
 }
 

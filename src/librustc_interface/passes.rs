@@ -13,6 +13,7 @@ use rustc::session::config::{self, CrateType, Input, OutputFilenames, OutputType
 use rustc::session::config::{PpMode, PpSourceMode};
 use rustc::session::search_paths::PathKind;
 use rustc::session::Session;
+use rustc::sir::Sir;
 use rustc::traits;
 use rustc::ty::steal::Steal;
 use rustc::ty::{self, GlobalCtxt, ResolverOutputs, TyCtxt};
@@ -970,13 +971,8 @@ pub fn start_codegen<'tcx>(
     }
 
     // If the user has requested to just dump SIR to disk, then let's do that.
-    if tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
-        let res = fs::File::create(outputs.path(OutputType::YkSir)).and_then(|mut sir_file| {
-            for f in tcx.sir_funcs.replace(Default::default()) {
-                writeln!(sir_file, "{}", f)?;
-            }
-            Ok(())
-        });
+    if Sir::is_required(tcx) && tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
+        let res = fs::File::create(outputs.path(OutputType::YkSir)).and_then(|mut sir_file| tcx.sir.dump(tcx, &mut sir_file));
         if let Err(e) = res {
             tcx.sess.err(&format!("could not dump SIR to text file: {}", e));
             tcx.sess.abort_if_errors();

@@ -28,19 +28,12 @@ const SIR_GLOBAL_SYM_PREFIX: &str = ".yksir";
 /// Writes the SIR into a buffer which will be linked in into an ELF section via LLVM.
 /// This is based on write_compressed_metadata().
 pub fn write_sir<'tcx>(tcx: TyCtxt<'tcx>, sir_llvm_module: &mut ModuleLlvm) {
-    let sir_funcs = tcx.sir_funcs.replace(Vec::new());
+    let sir_funcs = tcx.sir.funcs.replace(Vec::new());
     let mut buf = Vec::new();
     let mut encoder = ykpack::Encoder::from(&mut buf);
 
     for func in sir_funcs {
-        dbg!(".");
-        // Often there are function declarations with no blocks. I think these are call
-        // targets from other crates or compilation units, which have to be declared to
-        // keep LLVM happy. There's no use in serialising these "empty functions" and they
-        // clash with the real declarations.
-        if !func.blocks.is_empty() {
-            encoder.serialise(ykpack::Pack::Body(func)).unwrap();
-        }
+        encoder.serialise(ykpack::Pack::Body(func)).unwrap();
     }
 
     encoder.done().unwrap();
