@@ -1,11 +1,11 @@
 use super::BackendTypes;
 use rustc::mir::mono::CodegenUnit;
 use rustc::session::Session;
+use rustc::sir::SirFuncCx;
 use rustc::ty::{self, Instance, Ty};
 use rustc_data_structures::fx::FxHashMap;
 use std::cell::RefCell;
 use std::sync::Arc;
-use rustc::sir::SirFuncCx;
 
 pub trait MiscMethods<'tcx>: BackendTypes {
     fn vtables(

@@ -972,7 +972,8 @@ pub fn start_codegen<'tcx>(
 
     // If the user has requested to just dump SIR to disk, then let's do that.
     if Sir::is_required(tcx) && tcx.sess.opts.output_types.contains_key(&OutputType::YkSir) {
-        let res = fs::File::create(outputs.path(OutputType::YkSir)).and_then(|mut sir_file| tcx.sir.dump(tcx, &mut sir_file));
+        let res = fs::File::create(outputs.path(OutputType::YkSir))
+            .and_then(|mut sir_file| tcx.sir.dump(tcx, &mut sir_file));
         if let Err(e) = res {
             tcx.sess.err(&format!("could not dump SIR to text file: {}", e));
             tcx.sess.abort_if_errors();

@@ -20,9 +20,9 @@ use crate::mir::interpret::{Allocation, ConstValue, Scalar};
 use crate::mir::{
     interpret, BodyAndCache, Field, Local, Place, PlaceElem, ProjectionKind, Promoted,
 };
+use crate::sir::Sir;
 use crate::traits;
 use crate::traits::{Clause, Clauses, Goal, GoalKind, Goals};
-use crate::sir::Sir;
 use crate::ty::free_region_map::FreeRegionMap;
 use crate::ty::layout::{LayoutDetails, TargetDataLayout, VariantIdx};
 use crate::ty::query;

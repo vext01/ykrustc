@@ -27,6 +27,7 @@ use rustc_hir::Unsafety;
 use rustc_target::spec::{HasTargetSpec, Target};
 
 use crate::abi::Abi;
+use rustc::sir;
 use rustc_span::source_map::{Span, DUMMY_SP};
 use rustc_span::symbol::Symbol;
 use std::cell::{Cell, RefCell};
@@ -34,7 +35,6 @@ use std::ffi::CStr;
 use std::iter;
 use std::str;
 use std::sync::Arc;
-use rustc::sir;
 
 /// There is one `CodegenCx` per compilation unit. Each one has its own LLVM
 /// `llvm::Context` so that several compilation units may be optimized in parallel.
@@ -313,11 +313,7 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
         // If we are putting SIR into the binary or dumping it to disk, then create a place to
         // store it until it is serialised. Also skip generating SIR for build scripts (we will
         // never trace them).
-        let sir = if sir::Sir::is_required(tcx) {
-            Some(Default::default())
-        } else {
-            None
-        };
+        let sir = if sir::Sir::is_required(tcx) { Some(Default::default()) } else { None };
 
         CodegenCx {
             tcx,

@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 
-use std::default::Default;
-use crate::ty::{TyCtxt, Instance};
-use rustc_session::config::OutputType;
-use ykpack;
-use std::cell::RefCell;
+use crate::ty::{Instance, TyCtxt};
 use rustc_hir::def_id::LOCAL_CRATE;
+use rustc_session::config::OutputType;
 use rustc_span::sym;
+use std::cell::RefCell;
+use std::default::Default;
 use std::io;
+use ykpack;
 
 #[derive(Default)]
 pub struct Sir {
@@ -53,15 +53,9 @@ impl SirFuncCx {
             } else if attr.check_name(sym::trace_tail) {
                 flags |= ykpack::bodyflags::TRACE_TAIL;
             }
-        };
-
-        Self {
-            func: ykpack::Body {
-                symbol_name,
-                blocks: Default::default(),
-                flags,
-            }
         }
+
+        Self { func: ykpack::Body { symbol_name, blocks: Default::default(), flags } }
     }
 
     pub fn add_block(&mut self) {
