@@ -243,6 +243,14 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
         bx.br(fx.blocks[mir::START_BLOCK]);
     }
 
+    // Allocate empty SIR blocks ahead of time.
+    if let Some(sir_func_cx) = &mut fx.sir_func_cx {
+        for (bb, _) in mir_body.basic_blocks().iter_enumerated() {
+            let sir_bb = sir_func_cx.add_block();
+            debug_assert!(sir_bb == bb.as_u32());
+        }
+    }
+
     let rpo = traversal::reverse_postorder(&mir_body);
     let mut visited = BitSet::new_empty(mir_body.basic_blocks().len());
 

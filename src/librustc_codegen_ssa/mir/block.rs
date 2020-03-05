@@ -777,7 +777,11 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         debug!("codegen_block({:?}={:?})", bb, data);
 
         for statement in &data.statements {
-            bx = self.codegen_statement(bx, statement);
+            bx = self.codegen_statement(bx, bb, statement);
+
+            if let Some(fcx) = self.sir_func_cx.as_mut() {
+                fcx.codegen_statement(bb.as_u32(), statement);
+            }
         }
 
         // Makes a seg FIXIT
@@ -791,10 +795,6 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         //    )).unwrap();
         //    bx.add_yk_block_label(lbl_name);
         //}
-
-        if let Some(fcx) = self.sir_func_cx.as_mut() {
-            fcx.add_block();
-        }
 
         self.codegen_terminator(bx, bb, data.terminator());
     }
