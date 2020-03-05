@@ -9,7 +9,7 @@ use libc::{c_char, c_uint};
 use log::debug;
 use rustc::session::config::{self, Sanitizer};
 use rustc::ty::layout::{self, Align, Size, TyLayout};
-use rustc::ty::{self, Ty, TyCtxt};
+use rustc::ty::{self, Ty, TyCtxt, SymbolName};
 use rustc_codegen_ssa::base::to_immediate;
 use rustc_codegen_ssa::common::{IntPredicate, RealPredicate, TypeKind};
 use rustc_codegen_ssa::mir::operand::{OperandRef, OperandValue};
@@ -18,7 +18,7 @@ use rustc_codegen_ssa::traits::*;
 use rustc_codegen_ssa::MemFlags;
 use rustc_data_structures::const_cstr;
 use rustc_data_structures::small_c_str::SmallCStr;
-use rustc_hir::def_id::DefId;
+use rustc_hir::def_id::{DefId, LOCAL_CRATE};
 use rustc_target::spec::{HasTargetSpec, Target};
 use std::borrow::Cow;
 use std::ffi::{CStr, CString};
@@ -153,11 +153,38 @@ impl BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
         }
     }
 
-    fn add_yk_block_label(&mut self, lbl_name: CString) {
+    fn add_yk_block_label(&mut self, fname: &str, sym: &SymbolName, bbidx: usize) {
+        if !self.tcx.sess.opts.cg.tracer.sir_labels() {
+            // We are not in hardware tracing mode.
+            return
+        }
+
+        if self.tcx.crate_name(LOCAL_CRATE).as_str().starts_with("rustc") {
+            // Skip rustc crates since we will never trace them.
+            return
+        }
+        if fname == "core::intrinsics::drop_in_place" ||
+           fname == "std::intrinsics::drop_in_place" ||
+           fname == "ptr::drop_in_place" ||
+           sym.name.as_str() == "main"
+        {
+            // Generating labels for these functions results in segfaults.
+            return;
+        }
+
+        // Create the label
+        use ykpack::BLOCK_LABEL_PREFIX;
+        let lbl_name = CString::new(format!(
+                "{}:{}:{}",
+                BLOCK_LABEL_PREFIX,
+                sym,
+                bbidx
+        )).unwrap();
+
         if let Some(dbg_cx) = self.cx().dbg_cx.as_ref() {
             let di_bldr = dbg_cx.get_builder();
             unsafe {
-                llvm::LLVMRustAddYkBlockLabel(self.llbuilder, di_bldr, lbl_name.as_ptr());
+                llvm::LLVMRustAddYkBlockLabel(self.llbuilder, di_bldr, self.llbb(), lbl_name.as_ptr());
             }
         }
     }

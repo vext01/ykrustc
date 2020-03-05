@@ -977,20 +977,21 @@ extern "C" int64_t LLVMRustDIBuilderCreateOpPlusUconst() {
 // Returns false if no label was added (e.g. if the BasicBlock is empty or is a
 // LandingPad), or true otherwise.
 extern "C" bool LLVMRustAddYkBlockLabel(LLVMBuilderRef Builder,
-        LLVMRustDIBuilderRef DBuilder, char *Name) {
+        LLVMRustDIBuilderRef DBuilder, LLVMBasicBlockRef Block, char *Name) {
 
-    BasicBlock *B = unwrap(Builder)->GetInsertBlock();
+    BasicBlock *B = unwrap(Block);
     Function *f = B->getParent();
     DISubprogram *SP = f->getSubprogram();
     auto Loc = DebugLoc::get(0, 0, SP);
-    if (B->isLandingPad()) {
-        // FIXME We may want to add labels to the landingpad instruction
-        // (getLandingPadInst) here in the future.
-        return false;
-    }
     auto First = B->getFirstNonPHI();
     if (First == nullptr) {
         // There is no instruction to attach a label to, so bail out.
+        return false;
+    }
+    if (B->isLandingPad()) {
+        // FIXME could be optimised to isa<LandingPadInst>(First)
+        // FIXME We may want to add labels to the landingpad instruction
+        // (getLandingPadInst) here in the future.
         return false;
     }
     DILabel *label = DBuilder->createLabel(SP, Name, SP->getFile(), 0, true);

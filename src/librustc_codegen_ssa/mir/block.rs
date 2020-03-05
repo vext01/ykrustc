@@ -20,7 +20,7 @@ use rustc_index::vec::Idx;
 use rustc_span::{source_map::Span, symbol::Symbol};
 use rustc_target::abi::call::{ArgAbi, FnAbi, PassMode};
 use rustc_target::spec::abi::Abi;
-use std::ffi::CString;
+use rustc_hir::def_id::LOCAL_CRATE;
 
 use std::borrow::Cow;
 
@@ -784,22 +784,15 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             }
         }
 
-        // Makes a seg FIXIT
-        //if !bx.tcx().def_path_str(self.instance.def_id()).contains("drop_in_place") {
-        //    use ykpack::BLOCK_LABEL_PREFIX;
-        //    let lbl_name = CString::new(format!(
-        //            "NEW_{}:{}:{}",
-        //            BLOCK_LABEL_PREFIX,
-        //            bx.cx().tcx().symbol_name(self.instance),
-        //            bb.index()
-        //    )).unwrap();
-        //    bx.add_yk_block_label(lbl_name);
-        //}
-
         self.codegen_terminator(bx, bb, data.terminator());
         if let Some(fcx) = self.sir_func_cx.as_mut() {
             fcx.codegen_terminator(bb.as_u32(), data.terminator());
         }
+
+        let mut bx = self.build_block(bb);
+        let sym = bx.cx().tcx().symbol_name(self.instance);
+        let fname = bx.tcx().def_path_str(self.instance.def_id());
+        bx.add_yk_block_label(&fname, &sym, bb.index());
     }
 
     fn codegen_terminator(
