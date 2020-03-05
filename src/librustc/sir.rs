@@ -1,3 +1,8 @@
+//! Serialised Intermediate Representation (SIR).
+//!
+//! SIR is built in-memory during LLVM code-generation (in rustc_codegen_ssa), and finally placed
+//! into an ELF section at link time. Each crate has one such ELF section.
+
 #![allow(dead_code)]
 
 use crate::ty::{Instance, TyCtxt};
@@ -11,6 +16,9 @@ use std::io;
 use std::convert::TryFrom;
 use ykpack;
 
+/// A collection of in-memory SIR data structures to be serialised.
+/// Each codegen unit builds one instance of this which is then merged into a "global" instance
+/// when the unit completes.
 #[derive(Default)]
 pub struct Sir {
     pub funcs: RefCell<Vec<ykpack::Body>>,
@@ -24,14 +32,17 @@ impl Sir {
             && tcx.crate_name(LOCAL_CRATE).as_str() != "build_script_build"
     }
 
+    /// Returns true if there is nothing inside.
     pub fn is_empty(&self) -> bool {
         self.funcs.borrow().len() == 0
     }
 
+    /// Merges the SIR in `other` into `self`, consuming `other`.
     pub fn update(&self, other: Self) {
         self.funcs.borrow_mut().extend(other.funcs.into_inner());
     }
 
+    /// Writes a textual representation of the SIR to `w`. Used for `--emit yk-sir`.
     pub fn dump(&self, tcx: TyCtxt<'_>, w: &mut dyn io::Write) -> Result<(), io::Error> {
         for f in tcx.sir.funcs.borrow().iter() {
             writeln!(w, "{}", f)?;
@@ -40,12 +51,13 @@ impl Sir {
     }
 }
 
+/// A structure for building the SIR of a function.
 pub struct SirFuncCx {
     pub func: ykpack::Body,
 }
 
 impl SirFuncCx {
-   pub fn new<'tcx>(tcx: TyCtxt<'tcx>, instance: &Instance<'tcx>) -> Self {
+   pub fn new<'tcx>(tcx: TyCtxt<'tcx>, instance: &Instance<'tcx>, num_blocks: usize) -> Self {
        let symbol_name = format!("new__{}", tcx.symbol_name(*instance).name.as_str());
 
        let mut flags = 0;
@@ -57,19 +69,17 @@ impl SirFuncCx {
            }
        }
 
-       Self { func: ykpack::Body { symbol_name, blocks: Default::default(), flags } }
-   }
-
-   pub fn add_block(&mut self) -> ykpack::BasicBlockIndex {
-       dbg!("len is {}",  self.func.blocks.len());
-       let idx = self.func.blocks.len();
-       self.func.blocks.push(ykpack::BasicBlock {
+       // Since there's a one-to-one mapping between MIR and SIR blocks, we know how many SIR
+       // blocks we will need and can allocate empty SIR blocks ahead of time.
+       let blocks = vec![ykpack::BasicBlock {
            stmts: Default::default(),
            term: ykpack::Terminator::Unreachable,
-       });
-       ykpack::BasicBlockIndex::try_from(idx).unwrap()
+       }; num_blocks];
+
+       Self { func: ykpack::Body { symbol_name, blocks, flags } }
    }
 
+   /// Returns true if there are no basic blocks.
    pub fn is_empty(&self) -> bool {
        self.func.blocks.len() == 0
    }
