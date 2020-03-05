@@ -89,6 +89,16 @@ impl SirFuncCx {
        self.func.blocks[usize::try_from(bb).unwrap()].stmts.push(stmt);
    }
 
+   /// Sets the terminator of the specified block.
+   pub fn codegen_terminator(&mut self, bb: ykpack::BasicBlockIndex, mir_term: &mir::Terminator<'_>) {
+       let term = &mut self.func.blocks[usize::try_from(bb).unwrap()].term;
+       // We should only ever replace the default unreachable terminator assigned at allocation time.
+       debug_assert!(*term == ykpack::Terminator::Unreachable);
+
+       // FIXME: Nothing is implemented yet.
+       *term = ykpack::Terminator::Unimplemented(format!("{:?}", mir_term.kind));
+   }
+
    /// Converts a MIR statement to SIR, appending the result to `bb`.
    pub fn codegen_statement(&mut self, bb: ykpack::BasicBlockIndex, stmt: &mir::Statement<'_>) {
        // FIXME: Nothing is implemented yet.
