@@ -35,4 +35,4 @@ rustc_target = { path = "../librustc_target" }
 smallvec = { version = "1.0", features = ["union", "may_dangle"] }
 rustc_ast = { path = "../librustc_ast" }
 rustc_span = { path = "../librustc_span" }
-ykpack = { git = "https://github.com/softdevteam/yk" }
+ykpack = { git = "https://github.com/vext01/yk", rev="77a2cc73db1498156d964d0776e342c06f6259a3" }
