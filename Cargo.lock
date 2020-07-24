@@ -1004,6 +1004,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 
 [[package]]
+name = "fallible-iterator"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
+
+[[package]]
 name = "filetime"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1746,9 +1752,9 @@ dependencies = [
 
 [[package]]
 name = "mdbook"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2567ffadc0fd26fe15d6f6e0a80639f19f6a50082fdb460d0ae5d1f7298181be"
+checksum = "406bb18cb79fb45a31df9a4dbc1d9cc51dead89202553d0290573bcc417e5902"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -1942,9 +1948,12 @@ dependencies = [
 
 [[package]]
 name = "num-traits"
-version = "0.2.6"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b3a5d7cc97d6d30d8b9bc8fa19bf45349ffe46241e8816f50f62f6d6aaabee1"
+checksum = "ac267bcc07f48ee5f8935ab0d24f316fb722d7a1292e2913f0cc196b29ffd611"
+dependencies = [
+ "autocfg 1.0.0",
+]
 
 [[package]]
 name = "num_cpus"
@@ -2795,6 +2804,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmp"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f10b46df14cf1ee1ac7baa4d2fbc2c52c0622a4b82fa8740e37bc452ac0184f"
+dependencies = [
+ "byteorder",
+ "num-traits",
+]
+
+[[package]]
+name = "rmp-serde"
+version = "0.14.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c1ee98f14fe8b8e9c5ea13d25da7b2a1796169202c57a09d7288de90d56222b"
+dependencies = [
+ "byteorder",
+ "rmp",
+ "serde",
+]
+
+[[package]]
 name = "rust-demangler"
 version = "0.0.0"
 dependencies = [
@@ -3318,6 +3348,7 @@ dependencies = [
  "rustc_span",
  "rustc_target",
  "smallvec 1.4.0",
+ "ykpack",
 ]
 
 [[package]]
@@ -3348,6 +3379,7 @@ dependencies = [
  "rustc_symbol_mangling",
  "rustc_target",
  "tempfile",
+ "ykpack",
 ]
 
 [[package]]
@@ -3684,6 +3716,7 @@ dependencies = [
  "rustc_target",
  "scoped-tls",
  "smallvec 1.4.0",
+ "ykpack",
 ]
 
 [[package]]
@@ -5253,4 +5286,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65923dd1784f44da1d2c3dbbc5e822045628c590ba72123e1c73d3c230c4434d"
 dependencies = [
  "linked-hash-map",
+]
+
+[[package]]
+name = "ykpack"
+version = "0.1.0"
+source = "git+https://github.com/softdevteam/yk#5bcd897dfb1de48908b66d3e9e366352841e29d7"
+dependencies = [
+ "fallible-iterator",
+ "rmp-serde",
+ "serde",
 ]

@@ -717,9 +717,6 @@ symbols! {
         no_default_passes,
         no_implicit_prelude,
         no_inline,
-        no_sw_trace,
-        trace_head,
-        trace_tail,
         no_link,
         no_main,
         no_mangle,
@@ -728,6 +725,7 @@ symbols! {
         no_stack_check,
         no_start,
         no_std,
+        no_sw_trace,
         nomem,
         non_ascii_idents,
         non_exhaustive,
@@ -1091,7 +1089,9 @@ symbols! {
         thread_local,
         tool_attributes,
         tool_lints,
+        trace_head,
         trace_macros,
+        trace_tail,
         track_caller,
         trait_alias,
         transmute,
@@ -1190,6 +1190,8 @@ symbols! {
         wrapping_mul,
         wrapping_sub,
         write_bytes,
+        yk_swt_rec_loc,
+        yk_trace_inputs,
     }
 }
 

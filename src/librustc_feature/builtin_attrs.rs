@@ -229,14 +229,15 @@ pub const BUILTIN_ATTRIBUTES: &[BuiltinAttribute] = &[
     ungated!(export_name, AssumedUsed, template!(NameValueStr: "name")),
     ungated!(link_section, AssumedUsed, template!(NameValueStr: "name")),
     ungated!(no_mangle, AssumedUsed, template!(Word)),
-    ungated!(used, AssumedUsed, template!(Word)),
 
     // "Don't software trace this". Disables the `AddYkSWTCalls` MIR transform.
-    ungated!(no_sw_trace, Whitelisted, template!(Word)),
+    ungated!(no_sw_trace, AssumedUsed, template!(Word)),
+
+    ungated!(used, AssumedUsed, template!(Word)),
 
     // Markers for trimming traces.
-    ungated!(trace_head, Whitelisted, template!(Word)),
-    ungated!(trace_tail, Whitelisted, template!(Word)),
+    ungated!(trace_head, AssumedUsed, template!(Word)),
+    ungated!(trace_tail, AssumedUsed, template!(Word)),
 
     // Limits:
     ungated!(recursion_limit, CrateLevel, template!(NameValueStr: "N")),
