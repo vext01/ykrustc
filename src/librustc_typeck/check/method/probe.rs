@@ -440,7 +440,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     }
 }
 
-pub fn provide(providers: &mut ty::query::Providers<'_>) {
+pub fn provide(providers: &mut ty::query::Providers) {
     providers.method_autoderef_steps = method_autoderef_steps;
 }
 
@@ -1536,7 +1536,7 @@ impl<'a, 'tcx> ProbeContext<'a, 'tcx> {
             } else {
                 let best_name = {
                     let names = applicable_close_candidates.iter().map(|cand| &cand.ident.name);
-                    find_best_match_for_name(names, &self.method_name.unwrap().as_str(), None)
+                    find_best_match_for_name(names, self.method_name.unwrap().name, None)
                 }
                 .unwrap();
                 Ok(applicable_close_candidates

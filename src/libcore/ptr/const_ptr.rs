@@ -2,6 +2,7 @@ use super::*;
 use crate::cmp::Ordering::{self, Equal, Greater, Less};
 use crate::intrinsics;
 use crate::mem;
+use crate::slice::SliceIndex;
 
 #[lang = "const_ptr"]
 impl<T: ?Sized> *const T {
@@ -323,7 +324,6 @@ impl<T: ?Sized> *const T {
     #[unstable(feature = "const_raw_ptr_comparison", issue = "53020")]
     #[rustc_const_unstable(feature = "const_raw_ptr_comparison", issue = "53020")]
     #[inline]
-    #[cfg(not(bootstrap))]
     pub const fn guaranteed_eq(self, other: *const T) -> bool
     where
         T: Sized,
@@ -331,13 +331,13 @@ impl<T: ?Sized> *const T {
         intrinsics::ptr_guaranteed_eq(self, other)
     }
 
-    /// Returns whether two pointers are guaranteed to be inequal.
+    /// Returns whether two pointers are guaranteed to be unequal.
     ///
     /// At runtime this function behaves like `self != other`.
     /// However, in some contexts (e.g., compile-time evaluation),
     /// it is not always possible to determine the inequality of two pointers, so this function may
-    /// spuriously return `false` for pointers that later actually turn out to be inequal.
-    /// But when it returns `true`, the pointers are guaranteed to be inequal.
+    /// spuriously return `false` for pointers that later actually turn out to be unequal.
+    /// But when it returns `true`, the pointers are guaranteed to be unequal.
     ///
     /// This function is the mirror of [`guaranteed_eq`], but not its inverse. There are pointer
     /// comparisons for which both functions return `false`.
@@ -355,7 +355,6 @@ impl<T: ?Sized> *const T {
     #[unstable(feature = "const_raw_ptr_comparison", issue = "53020")]
     #[rustc_const_unstable(feature = "const_raw_ptr_comparison", issue = "53020")]
     #[inline]
-    #[cfg(not(bootstrap))]
     pub const fn guaranteed_ne(self, other: *const T) -> bool
     where
         T: Sized,
@@ -825,6 +824,55 @@ impl<T> *const [T] {
         // SAFETY: this is safe because `*const [T]` and `FatPtr<T>` have the same layout.
         // Only `std` can make this guarantee.
         unsafe { Repr { rust: self }.raw }.len
+    }
+
+    /// Returns a raw pointer to the slice's buffer.
+    ///
+    /// This is equivalent to casting `self` to `*const T`, but more type-safe.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// #![feature(slice_ptr_get)]
+    /// use std::ptr;
+    ///
+    /// let slice: *const [i8] = ptr::slice_from_raw_parts(ptr::null(), 3);
+    /// assert_eq!(slice.as_ptr(), 0 as *const i8);
+    /// ```
+    #[inline]
+    #[unstable(feature = "slice_ptr_get", issue = "74265")]
+    #[rustc_const_unstable(feature = "slice_ptr_get", issue = "74265")]
+    pub const fn as_ptr(self) -> *const T {
+        self as *const T
+    }
+
+    /// Returns a raw pointer to an element or subslice, without doing bounds
+    /// checking.
+    ///
+    /// Calling this method with an out-of-bounds index or when `self` is not dereferencable
+    /// is *[undefined behavior]* even if the resulting pointer is not used.
+    ///
+    /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(slice_ptr_get)]
+    ///
+    /// let x = &[1, 2, 4] as *const [i32];
+    ///
+    /// unsafe {
+    ///     assert_eq!(x.get_unchecked(1), x.as_ptr().add(1));
+    /// }
+    /// ```
+    #[unstable(feature = "slice_ptr_get", issue = "74265")]
+    #[inline]
+    pub unsafe fn get_unchecked<I>(self, index: I) -> *const I::Output
+    where
+        I: SliceIndex<[T]>,
+    {
+        // SAFETY: the caller ensures that `self` is dereferencable and `index` in-bounds.
+        unsafe { index.get_unchecked(self) }
     }
 }
 

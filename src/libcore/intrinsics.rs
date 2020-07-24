@@ -15,7 +15,7 @@
 //!
 //! If an intrinsic is supposed to be used from a `const fn` with a `rustc_const_stable` attribute,
 //! the intrinsic's attribute must be `rustc_const_stable`, too. Such a change should not be done
-//! without T-lang consulation, because it bakes a feature into the language that cannot be
+//! without T-lang consultation, because it bakes a feature into the language that cannot be
 //! replicated in user code without compiler support.
 //!
 //! # Volatiles
@@ -932,6 +932,7 @@ extern "rust-intrinsic" {
     ///
     /// The stabilized version of this intrinsic is
     /// [`std::hint::unreachable_unchecked`](../../std/hint/fn.unreachable_unchecked.html).
+    #[rustc_const_unstable(feature = "const_unreachable_unchecked", issue = "53188")]
     pub fn unreachable() -> !;
 
     /// Informs the optimizer that a condition is always true.
@@ -993,7 +994,7 @@ extern "rust-intrinsic" {
     /// [`std::mem::align_of`](../../std/mem/fn.align_of.html).
     #[rustc_const_stable(feature = "const_min_align_of", since = "1.40.0")]
     pub fn min_align_of<T>() -> usize;
-    /// The prefered alignment of a type.
+    /// The preferred alignment of a type.
     ///
     /// This intrinsic does not have a stable counterpart.
     #[rustc_const_unstable(feature = "const_pref_align_of", issue = "none")]
@@ -1126,7 +1127,7 @@ extern "rust-intrinsic" {
     ///
     /// // use `u32::from_ne_bytes` instead
     /// let num = u32::from_ne_bytes(raw_bytes);
-    /// // or use `u32::from_le_bytes` or `u32::from_ge_bytes` to specify the endianness
+    /// // or use `u32::from_le_bytes` or `u32::from_be_bytes` to specify the endianness
     /// let num = u32::from_le_bytes(raw_bytes);
     /// assert_eq!(num, 0x12345678);
     /// let num = u32::from_be_bytes(raw_bytes);
@@ -1245,14 +1246,14 @@ extern "rust-intrinsic" {
     ///     assert!(mid <= len);
     ///     unsafe {
     ///         let slice2 = mem::transmute::<&mut [T], &mut [T]>(slice);
-    ///         // first: transmute is not typesafe; all it checks is that T and
+    ///         // first: transmute is not type safe; all it checks is that T and
     ///         // U are of the same size. Second, right here, you have two
     ///         // mutable references pointing to the same memory.
     ///         (&mut slice[0..mid], &mut slice2[mid..len])
     ///     }
     /// }
     ///
-    /// // This gets rid of the typesafety problems; `&mut *` will *only* give
+    /// // This gets rid of the type safety problems; `&mut *` will *only* give
     /// // you an `&mut T` from an `&mut T` or `*mut T`.
     /// fn split_at_mut_casts<T>(slice: &mut [T], mid: usize)
     ///                          -> (&mut [T], &mut [T]) {
@@ -1285,7 +1286,9 @@ extern "rust-intrinsic" {
     /// }
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
-    #[rustc_const_unstable(feature = "const_transmute", issue = "53605")]
+    // NOTE: While this makes the intrinsic const stable, we have some custom code in const fn
+    // checks that prevent its use within `const fn`.
+    #[rustc_const_stable(feature = "const_transmute", since = "1.46.0")]
     pub fn transmute<T, U>(e: T) -> U;
 
     /// Returns `true` if the actual type given as `T` requires drop
@@ -1925,7 +1928,6 @@ extern "rust-intrinsic" {
     /// The to-be-stabilized version of this intrinsic is
     /// [`std::mem::variant_count`](../../std/mem/fn.variant_count.html)
     #[rustc_const_unstable(feature = "variant_count", issue = "73662")]
-    #[cfg(not(bootstrap))]
     pub fn variant_count<T>() -> usize;
 
     /// Rust's "try catch" construct which invokes the function pointer `try_fn`
@@ -1958,7 +1960,12 @@ extern "rust-intrinsic" {
     /// generation.
     #[cfg(not(bootstrap))]
     #[lang = "count_code_region"]
-    pub fn count_code_region(index: u32, start_byte_pos: u32, end_byte_pos: u32);
+    pub fn count_code_region(
+        function_source_hash: u64,
+        index: u32,
+        start_byte_pos: u32,
+        end_byte_pos: u32,
+    );
 
     /// Internal marker for code coverage expressions, injected into the MIR when the
     /// "instrument-coverage" option is enabled. This intrinsic is not converted into a
@@ -1967,6 +1974,7 @@ extern "rust-intrinsic" {
     /// This marker identifies a code region and two other counters or counter expressions
     /// whose sum is the number of times the code region was executed.
     #[cfg(not(bootstrap))]
+    #[lang = "coverage_counter_add"]
     pub fn coverage_counter_add(
         index: u32,
         left_index: u32,
@@ -1979,6 +1987,7 @@ extern "rust-intrinsic" {
     /// whose difference is the number of times the code region was executed.
     /// (See `coverage_counter_add` for more information.)
     #[cfg(not(bootstrap))]
+    #[lang = "coverage_counter_subtract"]
     pub fn coverage_counter_subtract(
         index: u32,
         left_index: u32,
@@ -1990,17 +1999,14 @@ extern "rust-intrinsic" {
     /// This marker identifies a code region to be added to the "coverage map" to indicate source
     /// code that can never be reached.
     /// (See `coverage_counter_add` for more information.)
-    #[cfg(not(bootstrap))]
     pub fn coverage_unreachable(start_byte_pos: u32, end_byte_pos: u32);
 
     /// See documentation of `<*const T>::guaranteed_eq` for details.
     #[rustc_const_unstable(feature = "const_raw_ptr_comparison", issue = "53020")]
-    #[cfg(not(bootstrap))]
     pub fn ptr_guaranteed_eq<T>(ptr: *const T, other: *const T) -> bool;
 
     /// See documentation of `<*const T>::guaranteed_ne` for details.
     #[rustc_const_unstable(feature = "const_raw_ptr_comparison", issue = "53020")]
-    #[cfg(not(bootstrap))]
     pub fn ptr_guaranteed_ne<T>(ptr: *const T, other: *const T) -> bool;
 }
 

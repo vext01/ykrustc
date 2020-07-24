@@ -6,8 +6,11 @@ macro_rules! panic {
     () => (
         $crate::panic!("explicit panic")
     );
-    ($msg:expr) => (
+    ($msg:literal) => (
         $crate::panicking::panic($msg)
+    );
+    ($msg:expr) => (
+        $crate::panic!("{}", $crate::convert::identity::<&str>($msg))
     );
     ($msg:expr,) => (
         $crate::panic!($msg)
@@ -1044,7 +1047,7 @@ pub(crate) mod builtin {
         };
     }
 
-    /// Includes a utf8-encoded file as a string.
+    /// Includes a UTF-8 encoded file as a string.
     ///
     /// The file is located relative to the current file (similarly to how
     /// modules are found). The provided path is interpreted in a platform-specific

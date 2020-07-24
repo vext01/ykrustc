@@ -1132,6 +1132,16 @@ impl<'a, 'tcx> CrateMetadataRef<'a> {
             .decode((self, tcx))
     }
 
+    fn get_unused_generic_params(&self, id: DefIndex) -> FiniteBitSet<u64> {
+        self.root
+            .tables
+            .unused_generic_params
+            .get(self, id)
+            .filter(|_| !self.is_proc_macro(id))
+            .map(|params| params.decode(self))
+            .unwrap_or_default()
+    }
+
     fn get_promoted_mir(&self, tcx: TyCtxt<'tcx>, id: DefIndex) -> IndexVec<Promoted, Body<'tcx>> {
         self.root
             .tables
@@ -1386,9 +1396,6 @@ impl<'a, 'tcx> CrateMetadataRef<'a> {
         let constness = match self.kind(id) {
             EntryKind::AssocFn(data) => data.decode(self).fn_data.constness,
             EntryKind::Fn(data) => data.decode(self).constness,
-            // Some intrinsics can be const fn. While we could recompute this (at least until we
-            // stop having hardcoded whitelists and move to stability attributes), it seems cleaner
-            // to treat all const fns equally.
             EntryKind::ForeignFn(data) => data.decode(self).constness,
             EntryKind::Variant(..) | EntryKind::Struct(..) => hir::Constness::Const,
             _ => hir::Constness::NotConst,

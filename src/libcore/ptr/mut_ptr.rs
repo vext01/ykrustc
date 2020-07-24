@@ -1,6 +1,7 @@
 use super::*;
 use crate::cmp::Ordering::{self, Equal, Greater, Less};
 use crate::intrinsics;
+use crate::slice::SliceIndex;
 
 #[lang = "mut_ptr"]
 impl<T: ?Sized> *mut T {
@@ -46,17 +47,22 @@ impl<T: ?Sized> *mut T {
     /// operation because the returned value could be pointing to invalid
     /// memory.
     ///
-    /// When calling this method, you have to ensure that if the pointer is
-    /// non-NULL, then it is properly aligned, dereferenceable (for the whole
-    /// size of `T`) and points to an initialized instance of `T`. This applies
-    /// even if the result of this method is unused!
+    /// When calling this method, you have to ensure that *either* the pointer is NULL *or*
+    /// all of the following is true:
+    /// - it is properly aligned
+    /// - it must point to an initialized instance of T; in particular, the pointer must be
+    ///   "dereferencable" in the sense defined [here].
+    ///
+    /// This applies even if the result of this method is unused!
     /// (The part about being initialized is not yet fully decided, but until
     /// it is, the only safe approach is to ensure that they are indeed initialized.)
     ///
     /// Additionally, the lifetime `'a` returned is arbitrarily chosen and does
-    /// not necessarily reflect the actual lifetime of the data. It is up to the
-    /// caller to ensure that for the duration of this lifetime, the memory this
-    /// pointer points to does not get written to outside of `UnsafeCell<U>`.
+    /// not necessarily reflect the actual lifetime of the data. *You* must enforce
+    /// Rust's aliasing rules. In particular, for the duration of this lifetime,
+    /// the memory the pointer points to must not get mutated (except inside `UnsafeCell`).
+    ///
+    /// [here]: crate::ptr#safety
     ///
     /// # Examples
     ///
@@ -304,7 +310,6 @@ impl<T: ?Sized> *mut T {
     #[unstable(feature = "const_raw_ptr_comparison", issue = "53020")]
     #[rustc_const_unstable(feature = "const_raw_ptr_comparison", issue = "53020")]
     #[inline]
-    #[cfg(not(bootstrap))]
     pub const fn guaranteed_eq(self, other: *mut T) -> bool
     where
         T: Sized,
@@ -312,13 +317,13 @@ impl<T: ?Sized> *mut T {
         intrinsics::ptr_guaranteed_eq(self as *const _, other as *const _)
     }
 
-    /// Returns whether two pointers are guaranteed to be inequal.
+    /// Returns whether two pointers are guaranteed to be unequal.
     ///
     /// At runtime this function behaves like `self != other`.
     /// However, in some contexts (e.g., compile-time evaluation),
     /// it is not always possible to determine the inequality of two pointers, so this function may
-    /// spuriously return `false` for pointers that later actually turn out to be inequal.
-    /// But when it returns `true`, the pointers are guaranteed to be inequal.
+    /// spuriously return `false` for pointers that later actually turn out to be unequal.
+    /// But when it returns `true`, the pointers are guaranteed to be unequal.
     ///
     /// This function is the mirror of [`guaranteed_eq`], but not its inverse. There are pointer
     /// comparisons for which both functions return `false`.
@@ -336,7 +341,6 @@ impl<T: ?Sized> *mut T {
     #[unstable(feature = "const_raw_ptr_comparison", issue = "53020")]
     #[rustc_const_unstable(feature = "const_raw_ptr_comparison", issue = "53020")]
     #[inline]
-    #[cfg(not(bootstrap))]
     pub const unsafe fn guaranteed_ne(self, other: *mut T) -> bool
     where
         T: Sized,
@@ -1014,7 +1018,6 @@ impl<T> *mut [T] {
     ///
     /// ```rust
     /// #![feature(slice_ptr_len)]
-    ///
     /// use std::ptr;
     ///
     /// let slice: *mut [i8] = ptr::slice_from_raw_parts_mut(ptr::null_mut(), 3);
@@ -1027,6 +1030,55 @@ impl<T> *mut [T] {
         // SAFETY: this is safe because `*const [T]` and `FatPtr<T>` have the same layout.
         // Only `std` can make this guarantee.
         unsafe { Repr { rust_mut: self }.raw }.len
+    }
+
+    /// Returns a raw pointer to the slice's buffer.
+    ///
+    /// This is equivalent to casting `self` to `*mut T`, but more type-safe.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// #![feature(slice_ptr_get)]
+    /// use std::ptr;
+    ///
+    /// let slice: *mut [i8] = ptr::slice_from_raw_parts_mut(ptr::null_mut(), 3);
+    /// assert_eq!(slice.as_mut_ptr(), 0 as *mut i8);
+    /// ```
+    #[inline]
+    #[unstable(feature = "slice_ptr_get", issue = "74265")]
+    #[rustc_const_unstable(feature = "slice_ptr_get", issue = "74265")]
+    pub const fn as_mut_ptr(self) -> *mut T {
+        self as *mut T
+    }
+
+    /// Returns a raw pointer to an element or subslice, without doing bounds
+    /// checking.
+    ///
+    /// Calling this method with an out-of-bounds index or when `self` is not dereferencable
+    /// is *[undefined behavior]* even if the resulting pointer is not used.
+    ///
+    /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(slice_ptr_get)]
+    ///
+    /// let x = &mut [1, 2, 4] as *mut [i32];
+    ///
+    /// unsafe {
+    ///     assert_eq!(x.get_unchecked_mut(1), x.as_mut_ptr().add(1));
+    /// }
+    /// ```
+    #[unstable(feature = "slice_ptr_get", issue = "74265")]
+    #[inline]
+    pub unsafe fn get_unchecked_mut<I>(self, index: I) -> *mut I::Output
+    where
+        I: SliceIndex<[T]>,
+    {
+        // SAFETY: the caller ensures that `self` is dereferencable and `index` in-bounds.
+        unsafe { index.get_unchecked_mut(self) }
     }
 }
 

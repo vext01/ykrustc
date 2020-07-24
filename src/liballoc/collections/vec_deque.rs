@@ -1,7 +1,7 @@
 //! A double-ended queue implemented with a growable ring buffer.
 //!
-//! This queue has `O(1)` amortized inserts and removals from both ends of the
-//! container. It also has `O(1)` indexing like a vector. The contained elements
+//! This queue has *O*(1) amortized inserts and removals from both ends of the
+//! container. It also has *O*(1) indexing like a vector. The contained elements
 //! are not required to be copyable, and the queue will be sendable if the
 //! contained type is sendable.
 
@@ -1084,6 +1084,108 @@ impl<T> VecDeque<T> {
         self.tail == self.head
     }
 
+    fn range_start_end<R>(&self, range: R) -> (usize, usize)
+    where
+        R: RangeBounds<usize>,
+    {
+        let len = self.len();
+        let start = match range.start_bound() {
+            Included(&n) => n,
+            Excluded(&n) => n + 1,
+            Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Included(&n) => n + 1,
+            Excluded(&n) => n,
+            Unbounded => len,
+        };
+        assert!(start <= end, "lower bound was too large");
+        assert!(end <= len, "upper bound was too large");
+        (start, end)
+    }
+
+    /// Creates an iterator that covers the specified range in the `VecDeque`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the starting point is greater than the end point or if
+    /// the end point is greater than the length of the vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(deque_range)]
+    ///
+    /// use std::collections::VecDeque;
+    ///
+    /// let v: VecDeque<_> = vec![1, 2, 3].into_iter().collect();
+    /// let range = v.range(2..).copied().collect::<VecDeque<_>>();
+    /// assert_eq!(range, [3]);
+    ///
+    /// // A full range covers all contents
+    /// let all = v.range(..);
+    /// assert_eq!(all.len(), 3);
+    /// ```
+    #[inline]
+    #[unstable(feature = "deque_range", issue = "74217")]
+    pub fn range<R>(&self, range: R) -> Iter<'_, T>
+    where
+        R: RangeBounds<usize>,
+    {
+        let (start, end) = self.range_start_end(range);
+        let tail = self.wrap_add(self.tail, start);
+        let head = self.wrap_add(self.tail, end);
+        Iter {
+            tail,
+            head,
+            // The shared reference we have in &self is maintained in the '_ of Iter.
+            ring: unsafe { self.buffer_as_slice() },
+        }
+    }
+
+    /// Creates an iterator that covers the specified mutable range in the `VecDeque`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the starting point is greater than the end point or if
+    /// the end point is greater than the length of the vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(deque_range)]
+    ///
+    /// use std::collections::VecDeque;
+    ///
+    /// let mut v: VecDeque<_> = vec![1, 2, 3].into_iter().collect();
+    /// for v in v.range_mut(2..) {
+    ///   *v *= 2;
+    /// }
+    /// assert_eq!(v, vec![1, 2, 6]);
+    ///
+    /// // A full range covers all contents
+    /// for v in v.range_mut(..) {
+    ///   *v *= 2;
+    /// }
+    /// assert_eq!(v, vec![2, 4, 12]);
+    /// ```
+    #[inline]
+    #[unstable(feature = "deque_range", issue = "74217")]
+    pub fn range_mut<R>(&mut self, range: R) -> IterMut<'_, T>
+    where
+        R: RangeBounds<usize>,
+    {
+        let (start, end) = self.range_start_end(range);
+        let tail = self.wrap_add(self.tail, start);
+        let head = self.wrap_add(self.tail, end);
+        IterMut {
+            tail,
+            head,
+            // The shared reference we have in &mut self is maintained in the '_ of IterMut.
+            ring: unsafe { self.buffer_as_mut_slice() },
+        }
+    }
+
     /// Creates a draining iterator that removes the specified range in the
     /// `VecDeque` and yields the removed items.
     ///
@@ -1129,19 +1231,7 @@ impl<T> VecDeque<T> {
         // When finished, the remaining data will be copied back to cover the hole,
         // and the head/tail values will be restored correctly.
         //
-        let len = self.len();
-        let start = match range.start_bound() {
-            Included(&n) => n,
-            Excluded(&n) => n + 1,
-            Unbounded => 0,
-        };
-        let end = match range.end_bound() {
-            Included(&n) => n + 1,
-            Excluded(&n) => n,
-            Unbounded => len,
-        };
-        assert!(start <= end, "drain lower bound was too large");
-        assert!(end <= len, "drain upper bound was too large");
+        let (start, end) = self.range_start_end(range);
 
         // The deque's elements are parted into three segments:
         // * self.tail  -> drain_tail
@@ -1422,7 +1512,7 @@ impl<T> VecDeque<T> {
     /// Removes an element from anywhere in the `VecDeque` and returns it,
     /// replacing it with the first element.
     ///
-    /// This does not preserve ordering, but is `O(1)`.
+    /// This does not preserve ordering, but is *O*(1).
     ///
     /// Returns `None` if `index` is out of bounds.
     ///
@@ -1457,7 +1547,7 @@ impl<T> VecDeque<T> {
     /// Removes an element from anywhere in the `VecDeque` and returns it, replacing it with the
     /// last element.
     ///
-    /// This does not preserve ordering, but is `O(1)`.
+    /// This does not preserve ordering, but is *O*(1).
     ///
     /// Returns `None` if `index` is out of bounds.
     ///
@@ -2241,7 +2331,7 @@ impl<T> VecDeque<T> {
     ///
     /// # Complexity
     ///
-    /// Takes `O(min(mid, len() - mid))` time and no extra space.
+    /// Takes `*O*(min(mid, len() - mid))` time and no extra space.
     ///
     /// # Examples
     ///
@@ -2284,7 +2374,7 @@ impl<T> VecDeque<T> {
     ///
     /// # Complexity
     ///
-    /// Takes `O(min(k, len() - k))` time and no extra space.
+    /// Takes `*O*(min(k, len() - k))` time and no extra space.
     ///
     /// # Examples
     ///
@@ -2986,7 +3076,7 @@ impl<T> From<VecDeque<T>> for Vec<T> {
     /// [`Vec<T>`]: crate::vec::Vec
     /// [`VecDeque<T>`]: crate::collections::VecDeque
     ///
-    /// This never needs to re-allocate, but does need to do `O(n)` data movement if
+    /// This never needs to re-allocate, but does need to do *O*(*n*) data movement if
     /// the circular buffer doesn't happen to be at the beginning of the allocation.
     ///
     /// # Examples
@@ -2994,7 +3084,7 @@ impl<T> From<VecDeque<T>> for Vec<T> {
     /// ```
     /// use std::collections::VecDeque;
     ///
-    /// // This one is O(1).
+    /// // This one is *O*(1).
     /// let deque: VecDeque<_> = (1..5).collect();
     /// let ptr = deque.as_slices().0.as_ptr();
     /// let vec = Vec::from(deque);

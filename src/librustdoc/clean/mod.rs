@@ -114,7 +114,7 @@ impl Clean<ExternalCrate> for CrateNum {
                 for attr in attrs.lists(sym::doc) {
                     if let Some(v) = attr.value_str() {
                         if attr.check_name(sym::primitive) {
-                            prim = PrimitiveType::from_str(&v.as_str());
+                            prim = PrimitiveType::from_symbol(v);
                             if prim.is_some() {
                                 break;
                             }
@@ -1007,6 +1007,7 @@ impl Clean<FnRetTy> for hir::FnRetTy<'_> {
 impl Clean<Item> for doctree::Trait<'_> {
     fn clean(&self, cx: &DocContext<'_>) -> Item {
         let attrs = self.attrs.clean(cx);
+        let is_spotlight = attrs.has_doc_flag(sym::spotlight);
         Item {
             name: Some(self.name.clean(cx)),
             attrs,
@@ -1021,6 +1022,7 @@ impl Clean<Item> for doctree::Trait<'_> {
                 items: self.items.iter().map(|ti| ti.clean(cx)).collect(),
                 generics: self.generics.clean(cx),
                 bounds: self.bounds.clean(cx),
+                is_spotlight,
                 is_auto: self.is_auto.clean(cx),
             }),
         }
@@ -2351,10 +2353,6 @@ impl Clean<Stability> for attr::Stability {
                 attr::Stable { ref since } => since.to_string(),
                 _ => String::new(),
             },
-            deprecation: self.rustc_depr.as_ref().map(|d| Deprecation {
-                note: Some(d.reason.to_string()).filter(|r| !r.is_empty()),
-                since: Some(d.since.to_string()).filter(|d| !d.is_empty()),
-            }),
             unstable_reason: match self.level {
                 attr::Unstable { reason: Some(ref reason), .. } => Some(reason.to_string()),
                 _ => None,
@@ -2372,6 +2370,7 @@ impl Clean<Deprecation> for attr::Deprecation {
         Deprecation {
             since: self.since.map(|s| s.to_string()).filter(|s| !s.is_empty()),
             note: self.note.map(|n| n.to_string()).filter(|n| !n.is_empty()),
+            is_since_rustc_version: self.is_since_rustc_version,
         }
     }
 }

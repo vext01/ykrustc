@@ -3,8 +3,8 @@
 use std::fs;
 use std::path::Path;
 
-/// List of whitelisted sources for packages.
-const WHITELISTED_SOURCES: &[&str] = &[
+/// List of allowed sources for packages.
+const ALLOWED_SOURCES: &[&str] = &[
     "\"registry+https://github.com/rust-lang/crates.io-index\"",
     // The following are needed for Yorick whilst we use an unreleased revision not on crates.io.
     "\"git+https://github.com/3Hren/msgpack-rust?\
@@ -40,8 +40,8 @@ pub fn check(path: &Path, bad: &mut bool) {
             continue;
         }
 
-        // Ensure source is whitelisted.
-        if !WHITELISTED_SOURCES.contains(&&*source) {
+        // Ensure source is allowed.
+        if !ALLOWED_SOURCES.contains(&&*source) {
             println!("invalid source: {}", source);
             *bad = true;
         }
