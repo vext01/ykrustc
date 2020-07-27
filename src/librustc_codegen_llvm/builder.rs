@@ -155,7 +155,7 @@ impl BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
         }
     }
 
-    fn add_yk_block_label(&mut self, fname: &str, sym: &SymbolName, bbidx: usize) {
+    fn add_yk_block_label(&mut self, fname: &str, sym: &SymbolName<'_>, bbidx: usize) {
         if !self.tcx.sess.opts.cg.tracer.sir_labels() {
             // We are not in hardware tracing mode.
             return;
@@ -171,8 +171,8 @@ impl BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
         if self.tcx.sess.opts.test {
             let entry_fn = self.tcx.entry_fn(LOCAL_CRATE).unwrap().0.to_def_id();
             let entry_inst = Instance::mono(self.tcx, entry_fn);
-            let entry_sym = &*self.tcx.symbol_name(entry_inst).name.as_str();
-            if sym.name.as_str() == entry_sym {
+            let entry_sym = &*self.tcx.symbol_name(entry_inst).name;
+            if sym.name == entry_sym {
                 return;
             }
         }
@@ -180,7 +180,7 @@ impl BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
         if fname == "core::intrinsics::drop_in_place"
             || fname == "std::intrinsics::drop_in_place"
             || fname == "ptr::drop_in_place"
-            || sym.name.as_str() == "main"
+            || sym.name == "main"
         {
             // Generating labels for these functions results in segfaults.
             return;

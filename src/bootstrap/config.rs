@@ -747,6 +747,19 @@ impl Config {
         let default = config.channel == "dev";
         config.ignore_git = ignore_git.unwrap_or(default);
 
+        match env::var("STD_TRACER_MODE") {
+            Err(_) => panic!("STD_TRACER_MODE must be set"),
+            Ok(val) => {
+                if val != "off" {
+                    config.rust_optimize = false;
+                    config.rust_optimize_tests = true;
+                } else {
+                    config.rust_optimize = true;
+                    config.rust_optimize_tests = true;
+                }
+            }
+        }
+
         config
     }
 

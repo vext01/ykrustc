@@ -1238,6 +1238,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hashbrown"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34f595585f103464d8d2f6e9864682d74c1601fed5e07d62b1c9058dba8246fb"
+dependencies = [
+ "autocfg 1.0.0",
+]
+
+[[package]]
 name = "heck"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1370,9 +1379,13 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "1.0.2"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e81a7c05f79578dbc15793d8b619db9ba32b4577003ef3af1a91c416798c58d"
+checksum = "5b88cd59ee5f71fea89a62248fc8f387d44400cefe05ef548466d61ced9029a7"
+dependencies = [
+ "autocfg 1.0.0",
+ "hashbrown 0.8.1",
+]
 
 [[package]]
 name = "installer"
@@ -3695,6 +3708,7 @@ dependencies = [
  "bitflags",
  "byteorder",
  "chalk-ir",
+ "indexmap",
  "log",
  "measureme",
  "polonius-engine",
@@ -4386,7 +4400,7 @@ dependencies = [
  "core",
  "dlmalloc",
  "fortanix-sgx-abi",
- "hashbrown",
+ "hashbrown 0.6.2",
  "hermit-abi",
  "libc",
  "panic_abort",

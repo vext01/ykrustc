@@ -108,7 +108,7 @@ impl SirFuncCx<'tcx> {
         let num_locals = mir.local_decls.len();
         let local_decls = Vec::with_capacity(num_locals);
 
-        let symbol_name = String::from(&*tcx.symbol_name(*instance).name.as_str());
+        let symbol_name = String::from(&*tcx.symbol_name(*instance).name);
         Self {
             func: ykpack::Body {
                 symbol_name,

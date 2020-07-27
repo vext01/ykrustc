@@ -595,7 +595,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                     None
                 }
                 Some(inst) => {
-                    let sym = (&*bx.tcx().symbol_name(inst).name.as_str()).to_owned();
+                    let sym = (&*bx.tcx().symbol_name(inst).name).to_owned();
                     Some(ykpack::CallOperand::Fn(sym))
                 }
                 None => Some(ykpack::CallOperand::Unknown),

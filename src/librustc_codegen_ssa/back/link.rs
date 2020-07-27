@@ -1914,7 +1914,7 @@ fn add_upstream_rust_crates<'a, B: ArchiveBuilder<'a>>(
             Linkage::Static => {
                 add_static_crate::<B>(cmd, sess, codegen_results, tmpdir, crate_type, cnum);
                 if sess.opts.cg.tracer.encode_sir() {
-                    link_sir::<B>(cmd, sess, codegen_results, tmpdir, cnum);
+                    //link_sir::<B>(cmd, sess, codegen_results, tmpdir, cnum);
                 }
             }
             Linkage::Dynamic => add_dynamic_crate(cmd, sess, &src.dylib.as_ref().unwrap().0),
@@ -1939,32 +1939,32 @@ fn add_upstream_rust_crates<'a, B: ArchiveBuilder<'a>>(
     /// strictly required symbols and it is unaware that we will look directly into the SIR section
     /// at runtime. Whilst we could link the original rlib with --whole-archive, that would bloat
     /// the binary a lot (we'd include unused code).
-    fn link_sir<'a, B: ArchiveBuilder<'a>>(
-        cmd: &mut dyn Linker,
-        sess: &'a Session,
-        codegen_results: &CodegenResults,
-        tmpdir: &Path,
-        cnum: CrateNum,
-    ) {
-        let src = &codegen_results.crate_info.used_crate_source[&cnum];
-        let cratepath = &src.rlib.as_ref().unwrap().0;
-        let filename = format!("{}.yksir", cratepath.file_name().unwrap().to_str().unwrap());
+    //fn link_sir<'a, B: ArchiveBuilder<'a>>(
+    //    cmd: &mut dyn Linker,
+    //    sess: &'a Session,
+    //    codegen_results: &CodegenResults,
+    //    tmpdir: &Path,
+    //    cnum: CrateNum,
+    //) {
+    //    let src = &codegen_results.crate_info.used_crate_source[&cnum];
+    //    let cratepath = &src.rlib.as_ref().unwrap().0;
+    //    let filename = format!("{}.yksir", cratepath.file_name().unwrap().to_str().unwrap());
 
-        // Note that if there was a reproducible build test that used our tracer, then this would
-        // break it because the tempdir is non-deterministic.
-        let dst = tmpdir.join(filename);
-        let mut archive = <B as ArchiveBuilder>::new(sess, &dst, Some(cratepath));
-        archive.update_symbols();
+    //    // Note that if there was a reproducible build test that used our tracer, then this would
+    //    // break it because the tempdir is non-deterministic.
+    //    let dst = tmpdir.join(filename);
+    //    let mut archive = <B as ArchiveBuilder>::new(sess, &dst, Some(cratepath));
+    //    archive.update_symbols();
 
-        for f in archive.src_files() {
-            if f != SIR_FILENAME {
-                archive.remove_file(&f);
-            }
-        }
+    //    for f in archive.src_files() {
+    //        if f != SIR_FILENAME {
+    //            archive.remove_file(&f);
+    //        }
+    //    }
 
-        archive.build();
-        cmd.link_whole_rlib(&dst);
-    }
+    //    archive.build();
+    //    cmd.link_whole_rlib(&dst);
+    //}
 
     // Converts a library file-stem into a cc -l argument
     fn unlib<'a>(config: &config::Config, stem: &'a str) -> &'a str {

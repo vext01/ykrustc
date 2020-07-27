@@ -185,9 +185,6 @@ const PERMITTED_DEPENDENCIES: &[&str] = &[
     "rmp",
     "rmp-serde",
     "ykpack",
-    "c2-chacha",
-    "redox_termios",
-    "termion",
 ];
 
 /// Dependency checks.
