@@ -278,14 +278,14 @@ pub fn std_cargo(builder: &Builder<'_>, target: TargetSelection, stage: u32, car
         // Why? Because to trace through std and core (etc), we need:
         //  * For the software tracer, code with calls to the trace recorder.
         //  * For the hardware tracer, DILabels to help mapping back to SIR.
-        if stage != 0 {
-            match env::var("STD_TRACER_MODE") {
-                Err(_) => panic!("STD_TRACER_MODE must be set"),
-                Ok(val) => {
-                    cargo.rustflag("-C").rustflag(&format!("tracer={}", val));
-                }
-            }
-        }
+        //if stage != 0 {
+        //    match env::var("STD_TRACER_MODE") {
+        //        Err(_) => panic!("STD_TRACER_MODE must be set"),
+        //        Ok(val) => {
+        //            cargo.rustflag("-C").rustflag(&format!("tracer={}", val));
+        //        }
+        //    }
+        //}
     }
 
     // By default, rustc uses `-Cembed-bitcode=yes`, and Cargo overrides that

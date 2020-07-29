@@ -35,6 +35,7 @@ pub fn tsa<A: ToSocketAddrs>(a: A) -> Result<Vec<SocketAddr>, String> {
 // all want to use ports. This function figures out which workspace
 // it is running in and assigns a port range based on it.
 fn base_port() -> u16 {
+    // FIXME kill?
     let tracer_mode = env::var("STD_TRACER_MODE");
     let cwd = if tracer_mode.is_ok() {
         // This caters for ykrustc builds running in parallel.
