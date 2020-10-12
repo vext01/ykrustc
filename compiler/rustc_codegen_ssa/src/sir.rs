@@ -227,6 +227,8 @@ impl Sir {
 
 /// A structure for building the SIR of a function.
 pub struct SirFuncCx<'tcx> {
+    /// FIXME
+    mir: &'tcx mir::Body<'tcx>,
     pub func: ykpack::Body,
     /// Maps a MIR local index to a SIR one. This is required because ther is not one-to-one maping
     /// between MIR and SIR locals. SIR decomposes more complicated MIR asignments (i.e.
@@ -239,7 +241,7 @@ pub struct SirFuncCx<'tcx> {
 }
 
 impl SirFuncCx<'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, instance: &Instance<'tcx>, mir: &mir::Body<'_>) -> Self {
+    pub fn new(tcx: TyCtxt<'tcx>, instance: &Instance<'tcx>, mir: &'tcx mir::Body<'tcx>) -> Self {
         let mut flags = 0;
         for attr in tcx.get_attrs(instance.def_id()).iter() {
             if tcx.sess.check_name(attr, sym::do_not_trace) {
@@ -302,6 +304,7 @@ impl SirFuncCx<'tcx> {
         }
 
         Self {
+            mir,
             func: ykpack::Body { symbol_name, blocks, flags, local_decls, num_args: mir.arg_count },
             var_map: Default::default(),
             next_sir_local: 0,
@@ -385,12 +388,19 @@ impl SirFuncCx<'tcx> {
 
     pub fn lower_place(&mut self, place: &mir::Place<'_>) -> ykpack::IPlace {
         // Start with the base local and project off of it.
-        let cur = ykpack::IPlace::Val(self.sir_local(&place.local), 0);
+        let cur_iplace = ykpack::IPlace::Val(self.sir_local(&place.local), ykpack::Derivative::ByteOffset(0));
+        let cur_mirty = self.mir.local_decls[place.local].ty;
 
         for pj in place.projection {
-            match pj {
-                _ => todo!(),
-            }
+            //match pj {
+            //    mir::ProjectionElem::Field(f, _) => {
+            //        let fi = f.as_u32();
+            //        match cur_mirty {
+            //            ty::Adt(def, _) => {
+            //        }
+            //    },
+            //    _ => todo!(),
+            //}
         }
 
         //ykpack::Place {
@@ -398,7 +408,7 @@ impl SirFuncCx<'tcx> {
         //    // FIXME projections not yet implemented.
         //    projection: place.projection.iter().map(|p| self.lower_projection(&p)).collect(),
         //}
-        cur
+        cur_iplace
     }
 
     pub fn lower_projection(&self, pe: &mir::PlaceElem<'_>) -> ykpack::Projection {
