@@ -392,15 +392,51 @@ impl SirFuncCx<'tcx> {
         let cur_mirty = self.mir.local_decls[place.local].ty;
 
         for pj in place.projection {
-            //match pj {
+            //let dv = match pj {
             //    mir::ProjectionElem::Field(f, _) => {
             //        let fi = f.as_u32();
-            //        match cur_mirty {
+            //        match cur_mirty.kind() {
             //            ty::Adt(def, _) => {
+            //                if def.is_struct() {
+            //                    //let ty_layout = self.tcx.layout_of(cur_mirty);
+            //                    //ykpack::Derivative::ByteOffset(def.variants[VariantIdx::from_u32(0)].fields[fi].offset)
+
+            //                    // FIXME need a bx
+            //                    //let struct_layout = ty_layout.for_variant(bx, VariantIdx::from_u32(0));
+
+            //                    //match &ty_layout.fields {
+            //                    //    FieldsShape::Arbitrary { offsets, .. } => {
+            //                    //        let mut sir_offsets = Vec::new();
+            //                    //        let mut sir_tys = Vec::new();
+
+            //                    //        for (idx, offs) in offsets.iter().enumerate() {
+            //                    //            sir_tys.push(lower_ty_and_layout(tcx, bx, &struct_layout.field(bx, idx)));
+            //                    //            sir_offsets.push(offs.bytes());
+            //                    //        }
+
+            //                    //        ykpack::Ty::Struct(ykpack::StructTy {
+            //                    //            fields: ykpack::Fields { offsets: sir_offsets, tys: sir_tys },
+            //                    //            size_align: ykpack::SizeAndAlign { align, size },
+            //                    //        })
+            //                    //    }
+            //                    //    _ => ykpack::Ty::Unimplemented(format!("{:?}", ty_layout)),
+            //                    //}
+            //                } else if def.is_enum() {
+            //                    ykpack::Derivative::RuntimeField(fi)
+            //                }
+            //            },
+            //            ty::Tuple(..) => {
+            //                let ty_layout = self.tcx.layout_of(cur_mirty);
+            //                match &ty_layout.fields {
+            //                    FieldsShape::Arbitrary { offsets, .. } => ykpack::Derivative::ByteOffset(offsets[fi]),
+            //                    _ => todo!(),
+            //                }
+            //            }
+            //            _ => unreachable!("invalid field access"),
             //        }
             //    },
             //    _ => todo!(),
-            //}
+            //};
         }
 
         //ykpack::Place {
