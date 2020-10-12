@@ -3,12 +3,14 @@
 //! SIR is built in-memory during code-generation (in rustc_codegen_ssa), and finally placed
 //! into an ELF section at link time.
 
+#![allow(dead_code, unused_variables, unused_macros)]
+
 use crate::mir::LocalRef;
 use crate::traits::{BuilderMethods, SirMethods};
 use indexmap::IndexMap;
 use rustc_ast::ast;
 use rustc_ast::ast::{IntTy, UintTy};
-use rustc_data_structures::fx::FxHasher;
+use rustc_data_structures::fx::{FxHasher, FxHashMap};
 use rustc_hir::{self, def_id::LOCAL_CRATE};
 use rustc_middle::mir;
 use rustc_middle::ty::print::with_no_trimmed_paths;
@@ -226,6 +228,13 @@ impl Sir {
 /// A structure for building the SIR of a function.
 pub struct SirFuncCx<'tcx> {
     pub func: ykpack::Body,
+    /// Maps a MIR local index to a SIR one. This is required because ther is not one-to-one maping
+    /// between MIR and SIR locals. SIR decomposes more complicated MIR asignments (i.e.
+    /// projections) to simpler assignments, resulting in more variables and assignments.
+    /// FIXME optimise with a growing indexvec.
+    var_map: FxHashMap<mir::Local, ykpack::Local>,
+    /// The next SIR local variable index to be allocated.
+    next_sir_local: ykpack::LocalIndex,
     tcx: TyCtxt<'tcx>,
 }
 
@@ -294,7 +303,26 @@ impl SirFuncCx<'tcx> {
 
         Self {
             func: ykpack::Body { symbol_name, blocks, flags, local_decls, num_args: mir.arg_count },
+            var_map: Default::default(),
+            next_sir_local: 0,
             tcx,
+        }
+    }
+
+    /// Returns the SIR local corresponding with MIR local `ml`. A new SIR local is allocated if
+    /// we've never seen this MIR local before.
+    fn sir_local(&mut self, ml: &mir::Local) -> ykpack::Local {
+        //*self.var_map.entry(*ml).or_insert_with(|| {
+        //    let idx = self.next_sir_local;
+        //    self.next_sir_local += 1;
+        //    ykpack::Local(idx)
+        //})
+        if let Some(idx) = self.var_map.get(ml) {
+           *idx 
+        } else {
+            let idx = self.next_sir_local;
+            self.next_sir_local += 1;
+            ykpack::Local(idx)
         }
     }
 
@@ -320,8 +348,7 @@ impl SirFuncCx<'tcx> {
     pub fn lower_statement(&mut self, bb: ykpack::BasicBlockIndex, stmt: &mir::Statement<'_>) {
         match stmt.kind {
             mir::StatementKind::Assign(box (ref place, ref rvalue)) => {
-                let assign = self.lower_assign_stmt(place, rvalue);
-                self.push_stmt(bb, assign);
+                let assign = self.lower_assign_stmt(bb, place, rvalue);
             }
             // We compute our own liveness in Yorick, so these are ignored.
             mir::StatementKind::StorageLive(_) | mir::StatementKind::StorageDead(_) => {}
@@ -330,45 +357,48 @@ impl SirFuncCx<'tcx> {
     }
 
     fn lower_assign_stmt(
-        &self,
+        &mut self,
+        bb: ykpack::BasicBlockIndex,
         lvalue: &mir::Place<'_>,
         rvalue: &mir::Rvalue<'_>,
-    ) -> ykpack::Statement {
+    ) {
         let lhs = self.lower_place(lvalue);
         let rhs = self.lower_rvalue(rvalue);
-        ykpack::Statement::Assign(lhs, rhs)
+        self.push_stmt(bb, ykpack::Statement::IStore(lhs, rhs));
     }
 
-    pub fn lower_operand(&self, operand: &mir::Operand<'_>) -> ykpack::Operand {
+    pub fn lower_operand(&mut self, operand: &mir::Operand<'_>) -> ykpack::IPlace {
         match operand {
-            mir::Operand::Copy(place) | mir::Operand::Move(place) => {
-                ykpack::Operand::Place(self.lower_place(place))
-            }
-            mir::Operand::Constant(cst) => ykpack::Operand::Constant(self.lower_constant(cst)),
+            mir::Operand::Copy(place) | mir::Operand::Move(place) => self.lower_place(place),
+            mir::Operand::Constant(cst) => ykpack::IPlace::Const(self.lower_constant(cst)),
         }
     }
 
-    fn lower_rvalue(&self, rvalue: &mir::Rvalue<'_>) -> ykpack::Rvalue {
+    fn lower_rvalue(&mut self, rvalue: &mir::Rvalue<'_>) -> ykpack::IPlace {
         match rvalue {
-            mir::Rvalue::Use(opnd) => ykpack::Rvalue::Use(self.lower_operand(opnd)),
-            mir::Rvalue::BinaryOp(op, opnd1, opnd2) => self.lower_binop(*op, opnd1, opnd2, false),
-            mir::Rvalue::CheckedBinaryOp(op, opnd1, opnd2) => {
-                self.lower_binop(*op, opnd1, opnd2, true)
-            }
-            mir::Rvalue::Ref(_, _, place) => self.lower_ref(place),
-            mir::Rvalue::Len(place) => ykpack::Rvalue::Len(self.lower_place(place)),
-            _ => ykpack::Rvalue::Unimplemented(with_no_trimmed_paths(|| {
+            mir::Rvalue::Use(opnd) => self.lower_operand(opnd),
+            _ => ykpack::IPlace::Unimplemented(with_no_trimmed_paths(|| {
                 format!("unimplemented rvalue: {:?}", rvalue)
             })),
         }
     }
 
-    pub fn lower_place(&self, place: &mir::Place<'_>) -> ykpack::Place {
-        ykpack::Place {
-            local: self.lower_local(place.local),
-            // FIXME projections not yet implemented.
-            projection: place.projection.iter().map(|p| self.lower_projection(&p)).collect(),
+    pub fn lower_place(&mut self, place: &mir::Place<'_>) -> ykpack::IPlace {
+        // Start with the base local and project off of it.
+        let cur = ykpack::IPlace::Val(self.sir_local(&place.local), 0);
+
+        for pj in place.projection {
+            match pj {
+                _ => todo!(),
+            }
         }
+
+        //ykpack::Place {
+        //    local: self.lower_local(place.local),
+        //    // FIXME projections not yet implemented.
+        //    projection: place.projection.iter().map(|p| self.lower_projection(&p)).collect(),
+        //}
+        cur
     }
 
     pub fn lower_projection(&self, pe: &mir::PlaceElem<'_>) -> ykpack::Projection {
@@ -487,6 +517,7 @@ impl SirFuncCx<'tcx> {
             _ => Err(()),
         }
     }
+
     fn lower_binop(
         &self,
         op: mir::BinOp,
@@ -494,19 +525,20 @@ impl SirFuncCx<'tcx> {
         opnd2: &mir::Operand<'_>,
         checked: bool,
     ) -> ykpack::Rvalue {
-        let sir_op = binop_lowerings!(
-            op, Add, Sub, Mul, Div, Rem, BitXor, BitAnd, BitOr, Shl, Shr, Eq, Lt, Le, Ne, Ge, Gt,
-            Offset
-        );
-        let sir_opnd1 = self.lower_operand(opnd1);
-        let sir_opnd2 = self.lower_operand(opnd2);
+        todo!();
+    //    let sir_op = binop_lowerings!(
+    //        op, Add, Sub, Mul, Div, Rem, BitXor, BitAnd, BitOr, Shl, Shr, Eq, Lt, Le, Ne, Ge, Gt,
+    //        Offset
+    //    );
+    //    let sir_opnd1 = self.lower_operand(opnd1);
+    //    let sir_opnd2 = self.lower_operand(opnd2);
 
-        if checked {
-            debug_assert!(CHECKABLE_BINOPS.contains(&sir_op));
-            ykpack::Rvalue::CheckedBinaryOp(sir_op, sir_opnd1, sir_opnd2)
-        } else {
-            ykpack::Rvalue::BinaryOp(sir_op, sir_opnd1, sir_opnd2)
-        }
+    //    if checked {
+    //        debug_assert!(CHECKABLE_BINOPS.contains(&sir_op));
+    //        ykpack::Rvalue::CheckedBinaryOp(sir_op, sir_opnd1, sir_opnd2)
+    //    } else {
+    //        ykpack::Rvalue::BinaryOp(sir_op, sir_opnd1, sir_opnd2)
+    //    }
     }
 
     fn lower_bool(&self, s: mir::interpret::Scalar) -> ykpack::Constant {
@@ -517,8 +549,9 @@ impl SirFuncCx<'tcx> {
     }
 
     fn lower_ref(&self, place: &mir::Place<'_>) -> ykpack::Rvalue {
-        let sir_place = self.lower_place(place);
-        ykpack::Rvalue::Ref(sir_place)
+        todo!();
+        //let sir_place = self.lower_place(place);
+        //ykpack::Rvalue::Ref(sir_place)
     }
 }
 
