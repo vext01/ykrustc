@@ -587,9 +587,9 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             //);
             let term = ykpack::Terminator::Call {
                 operand,
-                args: args.iter().map(|a| sfcx.lower_operand(a)).collect(),
+                args: args.iter().map(|a| sfcx.lower_operand(&bx, a)).collect(),
                 destination: destination
-                    .map(|(ret_val, ret_bb)| (sfcx.lower_place(&ret_val), ret_bb.as_u32())),
+                    .map(|(ret_val, ret_bb)| (sfcx.lower_place(&bx, &ret_val), ret_bb.as_u32())),
             };
             sfcx.set_terminator(bb.as_u32(), term);
         }
@@ -983,7 +983,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             bx = self.codegen_statement(bx, statement);
 
             if let Some(fcx) = self.sir_func_cx.as_mut() {
-                fcx.lower_statement(bb.as_u32(), statement);
+                fcx.lower_statement(&bx, bb.as_u32(), statement);
             }
         }
 

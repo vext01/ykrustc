@@ -348,10 +348,10 @@ impl SirFuncCx<'tcx> {
     }
 
     /// Converts a MIR statement to SIR, appending the result to `bb`.
-    pub fn lower_statement(&mut self, bb: ykpack::BasicBlockIndex, stmt: &mir::Statement<'_>) {
+    pub fn lower_statement<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, bb: ykpack::BasicBlockIndex, stmt: &mir::Statement<'_>) {
         match stmt.kind {
             mir::StatementKind::Assign(box (ref place, ref rvalue)) => {
-                let assign = self.lower_assign_stmt(bb, place, rvalue);
+                let assign = self.lower_assign_stmt(bx, bb, place, rvalue);
             }
             // We compute our own liveness in Yorick, so these are ignored.
             mir::StatementKind::StorageLive(_) | mir::StatementKind::StorageDead(_) => {}
@@ -359,84 +359,88 @@ impl SirFuncCx<'tcx> {
         }
     }
 
-    fn lower_assign_stmt(
+    fn lower_assign_stmt<Bx: BuilderMethods<'a, 'tcx>>(
         &mut self,
+        bx: &Bx,
         bb: ykpack::BasicBlockIndex,
         lvalue: &mir::Place<'_>,
         rvalue: &mir::Rvalue<'_>,
     ) {
-        let lhs = self.lower_place(lvalue);
-        let rhs = self.lower_rvalue(rvalue);
+        let lhs = self.lower_place(bx, lvalue);
+        let rhs = self.lower_rvalue(bx, rvalue);
         self.push_stmt(bb, ykpack::Statement::IStore(lhs, rhs));
     }
 
-    pub fn lower_operand(&mut self, operand: &mir::Operand<'_>) -> ykpack::IPlace {
+    pub fn lower_operand<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, operand: &mir::Operand<'_>) -> ykpack::IPlace {
         match operand {
-            mir::Operand::Copy(place) | mir::Operand::Move(place) => self.lower_place(place),
+            mir::Operand::Copy(place) | mir::Operand::Move(place) => self.lower_place(bx, place),
             mir::Operand::Constant(cst) => ykpack::IPlace::Const(self.lower_constant(cst)),
         }
     }
 
-    fn lower_rvalue(&mut self, rvalue: &mir::Rvalue<'_>) -> ykpack::IPlace {
+    fn lower_rvalue<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, rvalue: &mir::Rvalue<'_>) -> ykpack::IPlace {
         match rvalue {
-            mir::Rvalue::Use(opnd) => self.lower_operand(opnd),
+            mir::Rvalue::Use(opnd) => self.lower_operand(bx, opnd),
             _ => ykpack::IPlace::Unimplemented(with_no_trimmed_paths(|| {
                 format!("unimplemented rvalue: {:?}", rvalue)
             })),
         }
     }
 
-    pub fn lower_place(&mut self, place: &mir::Place<'_>) -> ykpack::IPlace {
+    pub fn lower_place<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, place: &mir::Place<'_>) -> ykpack::IPlace {
         // Start with the base local and project off of it.
         let cur_iplace = ykpack::IPlace::Val(self.sir_local(&place.local), ykpack::Derivative::ByteOffset(0));
         let cur_mirty = self.mir.local_decls[place.local].ty;
 
         for pj in place.projection {
-            //let dv = match pj {
-            //    mir::ProjectionElem::Field(f, _) => {
-            //        let fi = f.as_u32();
-            //        match cur_mirty.kind() {
-            //            ty::Adt(def, _) => {
-            //                if def.is_struct() {
-            //                    //let ty_layout = self.tcx.layout_of(cur_mirty);
-            //                    //ykpack::Derivative::ByteOffset(def.variants[VariantIdx::from_u32(0)].fields[fi].offset)
+            let dv = match pj {
+                mir::ProjectionElem::Field(f, _) => {
+                    let fi = f.as_u32();
+                    match cur_mirty.kind() {
+                        ty::Adt(def, _) => {
+                            if def.is_struct() {
+                                let ty_layout = bx.layout_of(cur_mirty);
+                                //ykpack::Derivative::ByteOffset(def.variants[VariantIdx::from_u32(0)].fields[fi].offset)
 
-            //                    // FIXME need a bx
-            //                    //let struct_layout = ty_layout.for_variant(bx, VariantIdx::from_u32(0));
+                                // FIXME need a bx
+                                //let struct_layout = ty_layout.for_variant(bx, VariantIdx::from_u32(0));
 
-            //                    //match &ty_layout.fields {
-            //                    //    FieldsShape::Arbitrary { offsets, .. } => {
-            //                    //        let mut sir_offsets = Vec::new();
-            //                    //        let mut sir_tys = Vec::new();
+                                //match &ty_layout.fields {
+                                //    FieldsShape::Arbitrary { offsets, .. } => {
+                                //        let mut sir_offsets = Vec::new();
+                                //        let mut sir_tys = Vec::new();
 
-            //                    //        for (idx, offs) in offsets.iter().enumerate() {
-            //                    //            sir_tys.push(lower_ty_and_layout(tcx, bx, &struct_layout.field(bx, idx)));
-            //                    //            sir_offsets.push(offs.bytes());
-            //                    //        }
+                                //        for (idx, offs) in offsets.iter().enumerate() {
+                                //            sir_tys.push(lower_ty_and_layout(tcx, bx, &struct_layout.field(bx, idx)));
+                                //            sir_offsets.push(offs.bytes());
+                                //        }
 
-            //                    //        ykpack::Ty::Struct(ykpack::StructTy {
-            //                    //            fields: ykpack::Fields { offsets: sir_offsets, tys: sir_tys },
-            //                    //            size_align: ykpack::SizeAndAlign { align, size },
-            //                    //        })
-            //                    //    }
-            //                    //    _ => ykpack::Ty::Unimplemented(format!("{:?}", ty_layout)),
-            //                    //}
-            //                } else if def.is_enum() {
-            //                    ykpack::Derivative::RuntimeField(fi)
-            //                }
-            //            },
-            //            ty::Tuple(..) => {
-            //                let ty_layout = self.tcx.layout_of(cur_mirty);
-            //                match &ty_layout.fields {
-            //                    FieldsShape::Arbitrary { offsets, .. } => ykpack::Derivative::ByteOffset(offsets[fi]),
-            //                    _ => todo!(),
-            //                }
-            //            }
-            //            _ => unreachable!("invalid field access"),
-            //        }
-            //    },
-            //    _ => todo!(),
-            //};
+                                //        ykpack::Ty::Struct(ykpack::StructTy {
+                                //            fields: ykpack::Fields { offsets: sir_offsets, tys: sir_tys },
+                                //            size_align: ykpack::SizeAndAlign { align, size },
+                                //        })
+                                //    }
+                                //    _ => ykpack::Ty::Unimplemented(format!("{:?}", ty_layout)),
+                                //}
+                                ykpack::Derivative::RuntimeField(fi) // FIXME
+                            } else if def.is_enum() {
+                                ykpack::Derivative::RuntimeField(fi)
+                            } else {
+                                unreachable!();
+                            }
+                        },
+                        ty::Tuple(..) => {
+                            let ty_layout = bx.layout_of(cur_mirty);
+                            match &ty_layout.fields {
+                                FieldsShape::Arbitrary { offsets, .. } => ykpack::Derivative::ByteOffset(offsets[usize::try_from(fi).unwrap()].bytes_usize()),
+                                _ => todo!(),
+                            }
+                        }
+                        _ => unreachable!("invalid field access"),
+                    }
+                },
+                _ => todo!(),
+            };
         }
 
         //ykpack::Place {
