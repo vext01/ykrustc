@@ -10,7 +10,7 @@ use crate::traits::{BuilderMethods, SirMethods};
 use indexmap::IndexMap;
 use rustc_ast::ast;
 use rustc_ast::ast::{IntTy, UintTy};
-use rustc_data_structures::fx::{FxHasher, FxHashMap};
+use rustc_data_structures::fx::{FxHashMap, FxHasher};
 use rustc_hir::{self, def_id::LOCAL_CRATE};
 use rustc_middle::mir;
 use rustc_middle::ty::print::with_no_trimmed_paths;
@@ -315,18 +315,14 @@ impl SirFuncCx<'tcx> {
     /// Returns the SIR local corresponding with MIR local `ml`. A new SIR local is allocated if
     /// we've never seen this MIR local before.
     fn sir_local(&mut self, ml: &mir::Local) -> ykpack::Local {
-        //*self.var_map.entry(*ml).or_insert_with(|| {
-        //    let idx = self.next_sir_local;
-        //    self.next_sir_local += 1;
-        //    ykpack::Local(idx)
-        //})
-        if let Some(idx) = self.var_map.get(ml) {
-           *idx 
-        } else {
-            let idx = self.next_sir_local;
-            self.next_sir_local += 1;
-            ykpack::Local(idx)
-        }
+        if let Some(idx) = self.var_map.get(ml) { *idx } else { self.new_sir_local() }
+    }
+
+    /// Returns a fresh local variable.
+    fn new_sir_local(&mut self) -> ykpack::Local {
+        let idx = self.next_sir_local;
+        self.next_sir_local += 1;
+        ykpack::Local(idx)
     }
 
     /// Returns true if there are no basic blocks.
@@ -348,7 +344,12 @@ impl SirFuncCx<'tcx> {
     }
 
     /// Converts a MIR statement to SIR, appending the result to `bb`.
-    pub fn lower_statement<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, bb: ykpack::BasicBlockIndex, stmt: &mir::Statement<'_>) {
+    pub fn lower_statement<Bx: BuilderMethods<'a, 'tcx>>(
+        &mut self,
+        bx: &Bx,
+        bb: ykpack::BasicBlockIndex,
+        stmt: &mir::Statement<'_>,
+    ) {
         match stmt.kind {
             mir::StatementKind::Assign(box (ref place, ref rvalue)) => {
                 let assign = self.lower_assign_stmt(bx, bb, place, rvalue);
@@ -366,89 +367,104 @@ impl SirFuncCx<'tcx> {
         lvalue: &mir::Place<'_>,
         rvalue: &mir::Rvalue<'_>,
     ) {
-        let lhs = self.lower_place(bx, lvalue);
-        let rhs = self.lower_rvalue(bx, rvalue);
+        let lhs = self.lower_place(bx, bb, lvalue);
+        let rhs = self.lower_rvalue(bx, bb, rvalue);
         self.push_stmt(bb, ykpack::Statement::IStore(lhs, rhs));
     }
 
-    pub fn lower_operand<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, operand: &mir::Operand<'_>) -> ykpack::IPlace {
+    pub fn lower_operand<Bx: BuilderMethods<'a, 'tcx>>(
+        &mut self,
+        bx: &Bx,
+        bb: ykpack::BasicBlockIndex,
+        operand: &mir::Operand<'_>,
+    ) -> ykpack::IPlace {
         match operand {
-            mir::Operand::Copy(place) | mir::Operand::Move(place) => self.lower_place(bx, place),
+            mir::Operand::Copy(place) | mir::Operand::Move(place) => {
+                self.lower_place(bx, bb, place)
+            }
             mir::Operand::Constant(cst) => ykpack::IPlace::Const(self.lower_constant(cst)),
         }
     }
 
-    fn lower_rvalue<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, rvalue: &mir::Rvalue<'_>) -> ykpack::IPlace {
+    fn lower_rvalue<Bx: BuilderMethods<'a, 'tcx>>(
+        &mut self,
+        bx: &Bx,
+        bb: ykpack::BasicBlockIndex,
+        rvalue: &mir::Rvalue<'_>,
+    ) -> ykpack::IPlace {
         match rvalue {
-            mir::Rvalue::Use(opnd) => self.lower_operand(bx, opnd),
+            mir::Rvalue::Use(opnd) => self.lower_operand(bx, bb, opnd),
             _ => ykpack::IPlace::Unimplemented(with_no_trimmed_paths(|| {
                 format!("unimplemented rvalue: {:?}", rvalue)
             })),
         }
     }
 
-    pub fn lower_place<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, place: &mir::Place<'_>) -> ykpack::IPlace {
+    pub fn lower_place<Bx: BuilderMethods<'a, 'tcx>>(
+        &mut self,
+        bx: &Bx,
+        bb: ykpack::BasicBlockIndex,
+        place: &mir::Place<'_>,
+    ) -> ykpack::IPlace {
         // Start with the base local and project off of it.
-        let cur_iplace = ykpack::IPlace::Val(self.sir_local(&place.local), ykpack::Derivative::ByteOffset(0));
-        let cur_mirty = self.mir.local_decls[place.local].ty;
+        let mut cur_sir_local = self.sir_local(&place.local);
+        let mut cur_mirty = self.mir.local_decls[place.local].ty;
 
+        // Loop over the projection chain, repeatedly emitting intermediate SIR assignments.
         for pj in place.projection {
-            let dv = match pj {
+            let (next_ty, next_dv) = match pj {
                 mir::ProjectionElem::Field(f, _) => {
-                    let fi = f.as_u32();
+                    //let _fi = f.as_u32();
+                    let fi = f.as_usize();
                     match cur_mirty.kind() {
                         ty::Adt(def, _) => {
                             if def.is_struct() {
-                                let ty_layout = bx.layout_of(cur_mirty);
-                                //ykpack::Derivative::ByteOffset(def.variants[VariantIdx::from_u32(0)].fields[fi].offset)
-
-                                // FIXME need a bx
-                                //let struct_layout = ty_layout.for_variant(bx, VariantIdx::from_u32(0));
-
-                                //match &ty_layout.fields {
-                                //    FieldsShape::Arbitrary { offsets, .. } => {
-                                //        let mut sir_offsets = Vec::new();
-                                //        let mut sir_tys = Vec::new();
-
-                                //        for (idx, offs) in offsets.iter().enumerate() {
-                                //            sir_tys.push(lower_ty_and_layout(tcx, bx, &struct_layout.field(bx, idx)));
-                                //            sir_offsets.push(offs.bytes());
-                                //        }
-
-                                //        ykpack::Ty::Struct(ykpack::StructTy {
-                                //            fields: ykpack::Fields { offsets: sir_offsets, tys: sir_tys },
-                                //            size_align: ykpack::SizeAndAlign { align, size },
-                                //        })
-                                //    }
-                                //    _ => ykpack::Ty::Unimplemented(format!("{:?}", ty_layout)),
-                                //}
-                                ykpack::Derivative::RuntimeField(fi) // FIXME
+                                let ty_lay = bx.layout_of(cur_mirty);
+                                let st_lay = ty_lay.for_variant(bx, VariantIdx::from_u32(0));
+                                if let FieldsShape::Arbitrary { offsets, .. } = &st_lay.fields {
+                                    (
+                                        st_lay.field(bx, fi),
+                                        ykpack::Derivative::ByteOffset(offsets[fi].bytes_usize()),
+                                    )
+                                } else {
+                                    unreachable!();
+                                }
                             } else if def.is_enum() {
-                                ykpack::Derivative::RuntimeField(fi)
+                                return ykpack::IPlace::Unimplemented(format!(
+                                    "enum projection: {:?}",
+                                    place
+                                ));
                             } else {
                                 unreachable!();
                             }
-                        },
+                        }
                         ty::Tuple(..) => {
-                            let ty_layout = bx.layout_of(cur_mirty);
-                            match &ty_layout.fields {
-                                FieldsShape::Arbitrary { offsets, .. } => ykpack::Derivative::ByteOffset(offsets[usize::try_from(fi).unwrap()].bytes_usize()),
+                            let tup_lay = bx.layout_of(cur_mirty);
+                            match &tup_lay.fields {
+                                FieldsShape::Arbitrary { offsets, .. } => (
+                                    tup_lay.field(bx, fi),
+                                    ykpack::Derivative::ByteOffset(offsets[fi].bytes_usize()),
+                                ),
                                 _ => todo!(),
                             }
                         }
                         _ => unreachable!("invalid field access"),
                     }
-                },
+                }
                 _ => todo!(),
             };
-        }
 
-        //ykpack::Place {
-        //    local: self.lower_local(place.local),
-        //    // FIXME projections not yet implemented.
-        //    projection: place.projection.iter().map(|p| self.lower_projection(&p)).collect(),
-        //}
-        cur_iplace
+            // Emit an assignment to an intermediate SIR local and update the state for the next
+            // iteration of the resolution loop.
+            let l = self.new_sir_local();
+            self.push_stmt(
+                bb,
+                ykpack::Statement::Assign(l, ykpack::IPlace::Val(cur_sir_local, next_dv)),
+            );
+            cur_mirty = next_ty.ty;
+            cur_sir_local = l;
+        }
+        ykpack::IPlace::Val(cur_sir_local, ykpack::Derivative::ByteOffset(0))
     }
 
     pub fn lower_projection(&self, pe: &mir::PlaceElem<'_>) -> ykpack::Projection {
@@ -576,19 +592,19 @@ impl SirFuncCx<'tcx> {
         checked: bool,
     ) -> ykpack::Rvalue {
         todo!();
-    //    let sir_op = binop_lowerings!(
-    //        op, Add, Sub, Mul, Div, Rem, BitXor, BitAnd, BitOr, Shl, Shr, Eq, Lt, Le, Ne, Ge, Gt,
-    //        Offset
-    //    );
-    //    let sir_opnd1 = self.lower_operand(opnd1);
-    //    let sir_opnd2 = self.lower_operand(opnd2);
+        //    let sir_op = binop_lowerings!(
+        //        op, Add, Sub, Mul, Div, Rem, BitXor, BitAnd, BitOr, Shl, Shr, Eq, Lt, Le, Ne, Ge, Gt,
+        //        Offset
+        //    );
+        //    let sir_opnd1 = self.lower_operand(opnd1);
+        //    let sir_opnd2 = self.lower_operand(opnd2);
 
-    //    if checked {
-    //        debug_assert!(CHECKABLE_BINOPS.contains(&sir_op));
-    //        ykpack::Rvalue::CheckedBinaryOp(sir_op, sir_opnd1, sir_opnd2)
-    //    } else {
-    //        ykpack::Rvalue::BinaryOp(sir_op, sir_opnd1, sir_opnd2)
-    //    }
+        //    if checked {
+        //        debug_assert!(CHECKABLE_BINOPS.contains(&sir_op));
+        //        ykpack::Rvalue::CheckedBinaryOp(sir_op, sir_opnd1, sir_opnd2)
+        //    } else {
+        //        ykpack::Rvalue::BinaryOp(sir_op, sir_opnd1, sir_opnd2)
+        //    }
     }
 
     fn lower_bool(&self, s: mir::interpret::Scalar) -> ykpack::Constant {

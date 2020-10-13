@@ -576,20 +576,12 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 None => ykpack::CallOperand::Unknown,
             };
 
-            //sfcx.set_terminator(
-            //    bb.as_u32(),
-            //    ykpack::Terminator::Call {
-            //        operand,
-            //        args: args.iter().map(|a| sfcx.lower_operand(a)).collect(),
-            //        destination: destination
-            //            .map(|(ret_val, ret_bb)| (sfcx.lower_place(&ret_val), ret_bb.as_u32())),
-            //    },
-            //);
             let term = ykpack::Terminator::Call {
                 operand,
-                args: args.iter().map(|a| sfcx.lower_operand(&bx, a)).collect(),
-                destination: destination
-                    .map(|(ret_val, ret_bb)| (sfcx.lower_place(&bx, &ret_val), ret_bb.as_u32())),
+                args: args.iter().map(|a| sfcx.lower_operand(&bx, bb.as_u32(), a)).collect(),
+                destination: destination.map(|(ret_val, ret_bb)| {
+                    (sfcx.lower_place(&bx, bb.as_u32(), &ret_val), ret_bb.as_u32())
+                }),
             };
             sfcx.set_terminator(bb.as_u32(), term);
         }
