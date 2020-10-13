@@ -406,12 +406,16 @@ impl SirFuncCx<'tcx> {
         bb: ykpack::BasicBlockIndex,
         place: &mir::Place<'_>,
     ) -> ykpack::IPlace {
+        dbg!(place);
+
         // Start with the base local and project off of it.
         let mut cur_sir_local = self.sir_local(&place.local);
         let mut cur_mirty = self.mir.local_decls[place.local].ty;
 
         // Loop over the projection chain, repeatedly emitting intermediate SIR assignments.
         for pj in place.projection {
+            dbg!(cur_mirty);
+            dbg!(pj);
             let (next_ty, next_dv) = match pj {
                 mir::ProjectionElem::Field(f, _) => {
                     //let _fi = f.as_u32();
@@ -439,19 +443,23 @@ impl SirFuncCx<'tcx> {
                             }
                         }
                         ty::Tuple(..) => {
-                            let tup_lay = bx.layout_of(cur_mirty);
-                            match &tup_lay.fields {
-                                FieldsShape::Arbitrary { offsets, .. } => (
-                                    tup_lay.field(bx, fi),
-                                    ykpack::Derivative::ByteOffset(offsets[fi].bytes_usize()),
-                                ),
-                                _ => todo!(),
-                            }
+                            return ykpack::IPlace::Unimplemented(format!(
+                                    "tuple: {:?}",
+                                    place
+                            ));
+                            //let tup_lay = bx.layout_of(cur_mirty);
+                            //match &tup_lay.fields {
+                            //    FieldsShape::Arbitrary { offsets, .. } => (
+                            //        tup_lay.field(bx, fi),
+                            //        ykpack::Derivative::ByteOffset(offsets[fi].bytes_usize()),
+                            //    ),
+                            //    _ => todo!(),
+                            //}
                         }
-                        _ => unreachable!("invalid field access"),
+                        _ => return ykpack::IPlace::Unimplemented(format!( "field access on: {:?}", cur_mirty)),
                     }
                 }
-                _ => todo!(),
+                _ => return ykpack::IPlace::Unimplemented(format!("projection: {:?}", pj)),
             };
 
             // Emit an assignment to an intermediate SIR local and update the state for the next
