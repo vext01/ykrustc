@@ -15,6 +15,7 @@ use rustc_hir::{self, def_id::LOCAL_CRATE};
 use rustc_middle::mir;
 use rustc_middle::ty::print::with_no_trimmed_paths;
 use rustc_middle::ty::AdtDef;
+use rustc_middle::ty::TypeFoldable;
 use rustc_middle::ty::{self, layout::TyAndLayout, TyCtxt};
 use rustc_middle::ty::{Instance, Ty};
 use rustc_span::sym;
@@ -26,6 +27,7 @@ use std::default::Default;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::io;
 use ykpack;
+//use crate::mir::TypeFoldable;
 
 pub(crate) fn lower_local_ref<'a, 'l, 'tcx, Bx: BuilderMethods<'a, 'tcx>, V>(
     tcx: TyCtxt<'tcx>,
@@ -228,6 +230,8 @@ impl Sir {
 /// A structure for building the SIR of a function.
 pub struct SirFuncCx<'tcx> {
     /// FIXME
+    instance: Instance<'tcx>,
+    /// FIXME
     mir: &'tcx mir::Body<'tcx>,
     pub func: ykpack::Body,
     /// Maps a MIR local index to a SIR one. This is required because ther is not one-to-one maping
@@ -304,6 +308,7 @@ impl SirFuncCx<'tcx> {
         }
 
         Self {
+            instance: instance.clone(),
             mir,
             func: ykpack::Body { symbol_name, blocks, flags, local_decls, num_args: mir.arg_count },
             var_map: Default::default(),
@@ -400,25 +405,31 @@ impl SirFuncCx<'tcx> {
         }
     }
 
+    fn monomorphize<T>(&self, value: &T) -> T
+    where
+        T: TypeFoldable<'tcx> + Copy,
+    {
+        if let Some(substs) = self.instance.substs_for_mir_body() {
+            self.tcx.subst_and_normalize_erasing_regions(substs, ty::ParamEnv::reveal_all(), value)
+        } else {
+            self.tcx.normalize_erasing_regions(ty::ParamEnv::reveal_all(), *value)
+        }
+    }
+
     pub fn lower_place<Bx: BuilderMethods<'a, 'tcx>>(
         &mut self,
         bx: &Bx,
         bb: ykpack::BasicBlockIndex,
         place: &mir::Place<'_>,
     ) -> ykpack::IPlace {
-        dbg!(place);
-
         // Start with the base local and project off of it.
         let mut cur_sir_local = self.sir_local(&place.local);
-        let mut cur_mirty = self.mir.local_decls[place.local].ty;
+        let mut cur_mirty = self.monomorphize(&self.mir.local_decls[place.local].ty);
 
         // Loop over the projection chain, repeatedly emitting intermediate SIR assignments.
         for pj in place.projection {
-            dbg!(cur_mirty);
-            dbg!(pj);
             let (next_ty, next_dv) = match pj {
                 mir::ProjectionElem::Field(f, _) => {
-                    //let _fi = f.as_u32();
                     let fi = f.as_usize();
                     match cur_mirty.kind() {
                         ty::Adt(def, _) => {
@@ -431,7 +442,10 @@ impl SirFuncCx<'tcx> {
                                         ykpack::Derivative::ByteOffset(offsets[fi].bytes_usize()),
                                     )
                                 } else {
-                                    unreachable!();
+                                    return ykpack::IPlace::Unimplemented(format!(
+                                        "field shape: {:?}",
+                                        st_lay.fields
+                                    ));
                                 }
                             } else if def.is_enum() {
                                 return ykpack::IPlace::Unimplemented(format!(
@@ -439,14 +453,14 @@ impl SirFuncCx<'tcx> {
                                     place
                                 ));
                             } else {
-                                unreachable!();
+                                return ykpack::IPlace::Unimplemented(format!(
+                                    "unhandled adt: {:?}",
+                                    def
+                                ));
                             }
                         }
                         ty::Tuple(..) => {
-                            return ykpack::IPlace::Unimplemented(format!(
-                                    "tuple: {:?}",
-                                    place
-                            ));
+                            return ykpack::IPlace::Unimplemented(format!("tuple: {:?}", place));
                             //let tup_lay = bx.layout_of(cur_mirty);
                             //match &tup_lay.fields {
                             //    FieldsShape::Arbitrary { offsets, .. } => (
@@ -456,11 +470,20 @@ impl SirFuncCx<'tcx> {
                             //    _ => todo!(),
                             //}
                         }
-                        _ => return ykpack::IPlace::Unimplemented(format!( "field access on: {:?}", cur_mirty)),
+                        _ => {
+                            return ykpack::IPlace::Unimplemented(format!(
+                                "field access on: {:?}",
+                                cur_mirty
+                            ));
+                        }
                     }
                 }
                 _ => return ykpack::IPlace::Unimplemented(format!("projection: {:?}", pj)),
             };
+
+            if next_ty.is_unsized() {
+                return ykpack::IPlace::Unimplemented(format!("unsized type in: {:?}", pj));
+            }
 
             // Emit an assignment to an intermediate SIR local and update the state for the next
             // iteration of the resolution loop.
@@ -469,7 +492,7 @@ impl SirFuncCx<'tcx> {
                 bb,
                 ykpack::Statement::Assign(l, ykpack::IPlace::Val(cur_sir_local, next_dv)),
             );
-            cur_mirty = next_ty.ty;
+            cur_mirty = self.monomorphize(&next_ty.ty);
             cur_sir_local = l;
         }
         ykpack::IPlace::Val(cur_sir_local, ykpack::Derivative::ByteOffset(0))
