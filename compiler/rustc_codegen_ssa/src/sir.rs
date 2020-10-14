@@ -491,6 +491,9 @@ impl SirFuncCx<'tcx> {
 
             // Emit an assignment to an intermediate SIR local and update the state for the next
             // iteration of the resolution loop.
+            //
+            // FIXME optimisation: On processing the last projection there's no need to emit an
+            // assignment, we can return the final IPlace directly.
             let l = self.new_sir_local();
             self.push_stmt(
                 bb,
