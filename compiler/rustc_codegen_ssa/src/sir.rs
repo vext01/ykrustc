@@ -3,7 +3,9 @@
 //! SIR is built in-memory during code-generation (in rustc_codegen_ssa), and finally placed
 //! into an ELF section at link time.
 
-#![allow(dead_code, unused_variables, unused_macros)]
+// FIXME the local decls are wrong.
+
+#![allow(dead_code, unused_variables, unused_macros, unused_imports)]
 
 use crate::mir::LocalRef;
 use crate::traits::{BuilderMethods, SirMethods};
@@ -27,31 +29,30 @@ use std::default::Default;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::io;
 use ykpack;
-//use crate::mir::TypeFoldable;
 
-pub(crate) fn lower_local_ref<'a, 'l, 'tcx, Bx: BuilderMethods<'a, 'tcx>, V>(
-    tcx: TyCtxt<'tcx>,
-    bx: &Bx,
-    decl: &'l LocalRef<'tcx, V>,
-) -> ykpack::LocalDecl {
-    let ty_layout = match decl {
-        LocalRef::Place(pref) => pref.layout,
-        LocalRef::UnsizedPlace(..) => {
-            let sir_ty = ykpack::Ty::Unimplemented(format!("LocalRef::UnsizedPlace"));
-            return ykpack::LocalDecl { ty: bx.cx().define_sir_type(sir_ty) };
-        }
-        LocalRef::Operand(opt_oref) => {
-            if let Some(oref) = opt_oref {
-                oref.layout
-            } else {
-                let sir_ty = ykpack::Ty::Unimplemented(format!("LocalRef::OperandRef is None"));
-                return ykpack::LocalDecl { ty: bx.cx().define_sir_type(sir_ty) };
-            }
-        }
-    };
-
-    ykpack::LocalDecl { ty: lower_ty_and_layout(tcx, bx, &ty_layout) }
-}
+//pub(crate) fn lower_local_ref<'a, 'l, 'tcx, Bx: BuilderMethods<'a, 'tcx>, V>(
+//    tcx: TyCtxt<'tcx>,
+//    bx: &Bx,
+//    decl: &'l LocalRef<'tcx, V>,
+//) -> ykpack::LocalDecl {
+//    let ty_layout = match decl {
+//        LocalRef::Place(pref) => pref.layout,
+//        LocalRef::UnsizedPlace(..) => {
+//            let sir_ty = ykpack::Ty::Unimplemented(format!("LocalRef::UnsizedPlace"));
+//            return ykpack::LocalDecl { ty: bx.cx().define_sir_type(sir_ty) };
+//        }
+//        LocalRef::Operand(opt_oref) => {
+//            if let Some(oref) = opt_oref {
+//                oref.layout
+//            } else {
+//                let sir_ty = ykpack::Ty::Unimplemented(format!("LocalRef::OperandRef is None"));
+//                return ykpack::LocalDecl { ty: bx.cx().define_sir_type(sir_ty) };
+//            }
+//        }
+//    };
+//
+//    ykpack::LocalDecl { ty: lower_ty_and_layout(tcx, bx, &ty_layout) }
+//}
 
 fn lower_ty_and_layout<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
     tcx: TyCtxt<'tcx>,
@@ -242,6 +243,8 @@ pub struct SirFuncCx<'tcx> {
     /// The next SIR local variable index to be allocated.
     next_sir_local: ykpack::LocalIndex,
     tcx: TyCtxt<'tcx>,
+    /// Local decls to be moved into the SIR body at the end of lowering.
+    local_decls: Vec<Option<ykpack::TypeId>>,
 }
 
 impl SirFuncCx<'tcx> {
@@ -312,6 +315,7 @@ impl SirFuncCx<'tcx> {
             mir,
             func: ykpack::Body { symbol_name, blocks, flags, local_decls, num_args: mir.arg_count },
             var_map: Default::default(),
+            local_decls: Default::default(),
             next_sir_local: 0,
             tcx,
         }
@@ -327,6 +331,7 @@ impl SirFuncCx<'tcx> {
     fn new_sir_local(&mut self) -> ykpack::Local {
         let idx = self.next_sir_local;
         self.next_sir_local += 1;
+        self.local_decls.push(None); // Unknown type until later.
         ykpack::Local(idx)
     }
 
@@ -399,6 +404,7 @@ impl SirFuncCx<'tcx> {
     ) -> ykpack::IPlace {
         match rvalue {
             mir::Rvalue::Use(opnd) => self.lower_operand(bx, bb, opnd),
+            mir::Rvalue::Ref(_, _, p) => self.lower_ref(bx, bb, p),
             _ => ykpack::IPlace::Unimplemented(with_no_trimmed_paths(|| {
                 format!("unimplemented rvalue: {:?}", rvalue)
             })),
@@ -503,6 +509,23 @@ impl SirFuncCx<'tcx> {
             cur_sir_local = l;
         }
         ykpack::IPlace::Val(cur_sir_local, ykpack::Derivative::ByteOffset(0))
+    }
+
+    /// Emit an assignment statement and update the type of the target local.
+    pub fn push_assign_and_declare<Bx: BuilderMethods<'a, 'tcx>>(
+        &mut self,
+        bx: &Bx,
+        bb: ykpack::BasicBlockIndex,
+        ty: &TyAndLayout<'tcx>,
+        l: ykpack::Local,
+        ip: ykpack::IPlace,
+    ) {
+        let sir_ty = lower_ty_and_layout(self.tcx, bx, ty);
+        let slot = self.local_decls.get_mut(usize::try_from(l.0).unwrap()).unwrap();
+        debug_assert!(slot.is_none()); // Check it wasn't already declared.
+        *slot = Some(sir_ty);
+
+        self.push_stmt(bb, ykpack::Statement::Assign(l, ip));
     }
 
     pub fn lower_projection(&self, pe: &mir::PlaceElem<'_>) -> ykpack::Projection {
@@ -652,10 +675,16 @@ impl SirFuncCx<'tcx> {
         }
     }
 
-    fn lower_ref(&self, place: &mir::Place<'_>) -> ykpack::Rvalue {
-        todo!();
-        //let sir_place = self.lower_place(place);
-        //ykpack::Rvalue::Ref(sir_place)
+    fn lower_ref<Bx: BuilderMethods<'a, 'tcx>>(
+        &mut self,
+        bx: &Bx,
+        bb: ykpack::BasicBlockIndex,
+        place: &mir::Place<'_>,
+    ) -> ykpack::IPlace {
+        let inner = self.lower_place(bx, bb, place);
+        let l = self.new_sir_local();
+        self.push_assign_and_declare(bx, bb, ty, l, inner);
+        ykpack::IPlace::Ref(l, ykpack::Derivative::ByteOffset(0))
     }
 }
 

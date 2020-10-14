@@ -16,7 +16,7 @@ use rustc_index::vec::IndexVec;
 use self::analyze::CleanupKind;
 use self::debuginfo::{FunctionDebugContext, PerLocalVarDebugInfo};
 use self::place::PlaceRef;
-use crate::sir::{self, Sir, SirFuncCx};
+use crate::sir::{Sir, SirFuncCx};
 use rustc_middle::mir::traversal;
 
 use self::operand::{OperandRef, OperandValue};
@@ -278,16 +278,17 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
     // This has to happen after the blocks have been codegenned so that all of the
     // `LocalRef::Operand`s have been fully resolved: they start `None` and are patched up during
     // `codegen_rvalue_operand`.
-    if fx.sir_func_cx.is_some() {
-        let mut decls: Vec<ykpack::LocalDecl> = Vec::new();
-        for l in &fx.locals {
-            decls.push(sir::lower_local_ref(cx.tcx(), &bx, l));
-        }
-        fx.sir_func_cx.as_mut().unwrap().func.local_decls.extend(decls);
-    }
+    //if fx.sir_func_cx.is_some() {
+    //    let mut decls: Vec<ykpack::LocalDecl> = Vec::new();
+    //    for l in &fx.locals {
+    //        decls.push(sir::lower_local_ref(cx.tcx(), &bx, l));
+    //    }
+    //    fx.sir_func_cx.as_mut().unwrap().func.local_decls.extend(decls);
+    //}
 
     // Remove blocks that haven't been visited, or have no
     // predecessors.
+    // FIXME remove from SIR too.
     for bb in mir.basic_blocks().indices() {
         // Unreachable block
         if !visited.contains(bb.index()) {
