@@ -443,7 +443,7 @@ impl SirFuncCx<'tcx> {
                                     )
                                 } else {
                                     return ykpack::IPlace::Unimplemented(format!(
-                                        "field shape: {:?}",
+                                        "struct field shape: {:?}",
                                         st_lay.fields
                                     ));
                                 }
@@ -460,15 +460,19 @@ impl SirFuncCx<'tcx> {
                             }
                         }
                         ty::Tuple(..) => {
-                            return ykpack::IPlace::Unimplemented(format!("tuple: {:?}", place));
-                            //let tup_lay = bx.layout_of(cur_mirty);
-                            //match &tup_lay.fields {
-                            //    FieldsShape::Arbitrary { offsets, .. } => (
-                            //        tup_lay.field(bx, fi),
-                            //        ykpack::Derivative::ByteOffset(offsets[fi].bytes_usize()),
-                            //    ),
-                            //    _ => todo!(),
-                            //}
+                            let tup_lay = bx.layout_of(cur_mirty);
+                            match &tup_lay.fields {
+                                FieldsShape::Arbitrary { offsets, .. } => (
+                                    tup_lay.field(bx, fi),
+                                    ykpack::Derivative::ByteOffset(offsets[fi].bytes_usize()),
+                                ),
+                                _ => {
+                                    return ykpack::IPlace::Unimplemented(format!(
+                                        "tuple field shape: {:?}",
+                                        tup_lay.fields
+                                    ));
+                                }
+                            }
                         }
                         _ => {
                             return ykpack::IPlace::Unimplemented(format!(
