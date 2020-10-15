@@ -185,11 +185,14 @@ impl SirFuncCx<'tcx> {
             flags |= ykpack::bodyflags::DO_NOT_TRACE;
         }
 
+        let mut var_map: FxHashMap<mir::Local, ykpack::Local> = FxHashMap::default();
+        var_map.insert(mir::Local::from_u32(0), ykpack::Local(0));
+
         Self {
             instance: instance.clone(),
             mir,
             func: ykpack::Body { symbol_name, blocks, flags, local_decls, num_args: mir.arg_count },
-            var_map: Default::default(),
+            var_map,
             local_decls: Default::default(),
             next_sir_local: 0,
             tcx,
@@ -259,7 +262,8 @@ impl SirFuncCx<'tcx> {
         rvalue: &mir::Rvalue<'tcx>,
     ) {
         let lhs = self.lower_place(bx, bb, lvalue);
-        let rhs = self.lower_rvalue(bx, bb, rvalue);
+        let dest_ty = lvalue.ty(self.mir, self.tcx).ty;
+        let rhs = self.lower_rvalue(bx, bb, dest_ty, rvalue);
         self.push_stmt(bb, ykpack::Statement::IStore(lhs, rhs));
     }
 
@@ -294,11 +298,13 @@ impl SirFuncCx<'tcx> {
         &mut self,
         bx: &Bx,
         bb: ykpack::BasicBlockIndex,
+        dest_ty: Ty<'tcx>,
         rvalue: &mir::Rvalue<'tcx>,
     ) -> ykpack::Local {
         match rvalue {
             mir::Rvalue::Use(opnd) => self.lower_operand(bx, bb, opnd),
             mir::Rvalue::Ref(_, _, p) => self.lower_ref(bx, bb, p),
+            mir::Rvalue::CheckedBinaryOp(op, opnd1, opnd2) => self.lower_binop(bx, bb, dest_ty, *op, opnd1, opnd2, true),
             _ => self.push_unimpl_assign(
                 bx,
                 bb,
@@ -440,12 +446,18 @@ impl SirFuncCx<'tcx> {
         l: ykpack::Local,
         ip: ykpack::IPlace,
     ) {
-        //let sir_ty = lower_ty_and_layout(self.tcx, bx, ty);
-        let slot = self.local_decls.get_mut(usize::try_from(l.0).unwrap()).unwrap();
-        debug_assert!(slot.is_none()); // Check it wasn't already declared.
-        *slot = Some(sir_ty);
+        self.declare_local(l, sir_ty);
+        //let slot = self.local_decls.get_mut(usize::try_from(l.0).unwrap()).unwrap();
+        //debug_assert!(slot.is_none()); // Check it wasn't already declared.
+        //*slot = Some(sir_ty);
 
         self.push_stmt(bb, ykpack::Statement::Assign(l, ip));
+    }
+
+    fn declare_local(&mut self, l: ykpack::Local, tyid: ykpack::TypeId) {
+        let slot = self.local_decls.get_mut(usize::try_from(l.0).unwrap()).unwrap();
+        debug_assert!(slot.is_none()); // Check it wasn't already declared.
+        *slot = Some(tyid);
     }
 
     //pub fn lower_projection(&self, pe: &mir::PlaceElem<'_>) -> ykpack::Projection {
@@ -582,27 +594,35 @@ impl SirFuncCx<'tcx> {
         }
     }
 
-    fn lower_binop(
-        &self,
+    fn lower_binop<Bx: BuilderMethods<'a, 'tcx>>(
+        &mut self,
+        bx: &Bx,
+        bb: ykpack::BasicBlockIndex,
+        dest_ty: Ty<'tcx>,
         op: mir::BinOp,
-        opnd1: &mir::Operand<'_>,
-        opnd2: &mir::Operand<'_>,
+        opnd1: &mir::Operand<'tcx>,
+        opnd2: &mir::Operand<'tcx>,
         checked: bool,
-    ) -> ykpack::Rvalue {
-        todo!();
-        //    let sir_op = binop_lowerings!(
-        //        op, Add, Sub, Mul, Div, Rem, BitXor, BitAnd, BitOr, Shl, Shr, Eq, Lt, Le, Ne, Ge, Gt,
-        //        Offset
-        //    );
-        //    let sir_opnd1 = self.lower_operand(opnd1);
-        //    let sir_opnd2 = self.lower_operand(opnd2);
+    ) -> ykpack::Local {
+        let op = binop_lowerings!(
+            op, Add, Sub, Mul, Div, Rem, BitXor, BitAnd, BitOr, Shl, Shr, Eq, Lt, Le, Ne, Ge, Gt,
+            Offset
+        );
+        let opnd1 = self.lower_operand(bx, bb, opnd1);
+        let opnd2 = self.lower_operand(bx, bb, opnd2);
 
-        //    if checked {
-        //        debug_assert!(CHECKABLE_BINOPS.contains(&sir_op));
-        //        ykpack::Rvalue::CheckedBinaryOp(sir_op, sir_opnd1, sir_opnd2)
-        //    } else {
-        //        ykpack::Rvalue::BinaryOp(sir_op, sir_opnd1, sir_opnd2)
-        //    }
+        if checked {
+            debug_assert!(CHECKABLE_BINOPS.contains(&op));
+        }
+
+        //let mirty = opnd1.ty(self.mir, self.tcx).ty; // dest type is the same as the first operand.
+        let dest = self.new_sir_local();
+        let sir_tyid = self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, dest_ty));
+        let stmt = ykpack::Statement::BinaryOp{dest, op, opnd1, opnd2, checked};
+        self.declare_local(dest, sir_tyid);
+        self.push_stmt(bb, stmt);
+
+        dest
     }
 
     fn lower_bool(&self, s: mir::interpret::Scalar) -> ykpack::Constant {
