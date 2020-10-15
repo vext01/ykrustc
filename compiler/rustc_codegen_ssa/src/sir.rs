@@ -30,30 +30,6 @@ use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::io;
 use ykpack;
 
-//pub(crate) fn lower_local_ref<'a, 'l, 'tcx, Bx: BuilderMethods<'a, 'tcx>, V>(
-//    tcx: TyCtxt<'tcx>,
-//    bx: &Bx,
-//    decl: &'l LocalRef<'tcx, V>,
-//) -> ykpack::LocalDecl {
-//    let ty_layout = match decl {
-//        LocalRef::Place(pref) => pref.layout,
-//        LocalRef::UnsizedPlace(..) => {
-//            let sir_ty = ykpack::Ty::Unimplemented(format!("LocalRef::UnsizedPlace"));
-//            return ykpack::LocalDecl { ty: bx.cx().define_sir_type(sir_ty) };
-//        }
-//        LocalRef::Operand(opt_oref) => {
-//            if let Some(oref) = opt_oref {
-//                oref.layout
-//            } else {
-//                let sir_ty = ykpack::Ty::Unimplemented(format!("LocalRef::OperandRef is None"));
-//                return ykpack::LocalDecl { ty: bx.cx().define_sir_type(sir_ty) };
-//            }
-//        }
-//    };
-//
-//    ykpack::LocalDecl { ty: lower_ty_and_layout(tcx, bx, &ty_layout) }
-//}
-
 const BUILD_SCRIPT_CRATE: &str = "build_script_build";
 const CHECKABLE_BINOPS: [ykpack::BinOp; 5] = [
     ykpack::BinOp::Add,
@@ -335,6 +311,11 @@ impl SirFuncCx<'tcx> {
         }
     }
 
+    /// Wrapper for bx.layout_of() which ensures the type is first monomorphised.
+    fn layout_of<Bx: BuilderMethods<'a, 'tcx>>(&self, bx: &Bx, t: Ty<'tcx>) -> TyAndLayout<'tcx> {
+        bx.layout_of(self.monomorphize(&t))
+    }
+
     pub fn lower_place<Bx: BuilderMethods<'a, 'tcx>>(
         &mut self,
         bx: &Bx,
@@ -353,7 +334,7 @@ impl SirFuncCx<'tcx> {
                     match cur_mirty.kind() {
                         ty::Adt(def, _) => {
                             if def.is_struct() {
-                                let ty_lay = bx.layout_of(cur_mirty);
+                                let ty_lay = self.layout_of(bx, cur_mirty);
                                 let st_lay = ty_lay.for_variant(bx, VariantIdx::from_u32(0));
                                 if let FieldsShape::Arbitrary { offsets, .. } = &st_lay.fields {
                                     let fld = st_lay.field(bx, fi);
@@ -388,7 +369,7 @@ impl SirFuncCx<'tcx> {
                             }
                         }
                         ty::Tuple(..) => {
-                            let tup_lay = bx.layout_of(cur_mirty);
+                            let tup_lay = self.layout_of(bx, cur_mirty);
                             match &tup_lay.fields {
                                 //FieldsShape::Arbitrary { offsets, .. } => (
                                 //    tup_lay.field(bx, fi).ty,
@@ -427,7 +408,7 @@ impl SirFuncCx<'tcx> {
             // iteration of the resolution loop.
             let l = self.new_sir_local();
             let ip = ykpack::IPlace::Val(cur_sir_local, next_dv);
-            let sir_tyid = self.lower_ty_and_layout(self.tcx, bx, &bx.layout_of(next_mirty));
+            let sir_tyid = self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, next_mirty));
             self.push_assign_and_declare(bx, bb, sir_tyid, l, ip);
 
             cur_mirty = next_mirty;
@@ -489,7 +470,7 @@ impl SirFuncCx<'tcx> {
 
         let l = self.new_sir_local();
         let ip = ykpack::IPlace::Const(c);
-        let sir_tyid = self.lower_ty_and_layout(self.tcx, bx, &bx.layout_of(cty));
+        let sir_tyid = self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, cty));
         self.push_assign_and_declare(bx, bb, sir_tyid, l, ip);
         l
     }
@@ -641,9 +622,9 @@ impl SirFuncCx<'tcx> {
             ty::Int(si) => self.lower_signed_int(*si),
             ty::Uint(ui) => self.lower_unsigned_int(*ui),
             ty::Adt(adt_def, ..) => self.lower_adt(tcx, bx, adt_def, &ty_layout),
-            ty::Array(typ, _) => ykpack::Ty::Array(self.lower_ty_and_layout(tcx, bx, &bx.layout_of(typ))),
-            ty::Slice(typ) => ykpack::Ty::Slice(self.lower_ty_and_layout(tcx, bx, &bx.layout_of(typ))),
-            ty::Ref(_, typ, _) => ykpack::Ty::Ref(self.lower_ty_and_layout(tcx, bx, &bx.layout_of(typ))),
+            ty::Array(typ, _) => ykpack::Ty::Array(self.lower_ty_and_layout(tcx, bx, &self.layout_of(bx, typ))),
+            ty::Slice(typ) => ykpack::Ty::Slice(self.lower_ty_and_layout(tcx, bx, &self.layout_of(bx, typ))),
+            ty::Ref(_, typ, _) => ykpack::Ty::Ref(self.lower_ty_and_layout(tcx, bx, &self.layout_of(bx, typ))),
             ty::Bool => ykpack::Ty::Bool,
             ty::Tuple(..) => self.lower_tuple(tcx, bx, ty_layout),
             _ => ykpack::Ty::Unimplemented(format!("{:?}", ty_layout)),
