@@ -408,19 +408,6 @@ impl SirFuncCx<'tcx> {
         cur_iplace
     }
 
-    /// Emit an assignment statement and update the type of the target local.
-    pub fn push_assign_and_declare<Bx: BuilderMethods<'a, 'tcx>>(
-        &mut self,
-        bx: &Bx,
-        bb: ykpack::BasicBlockIndex,
-        sir_ty: ykpack::TypeId,
-        l: ykpack::Local,
-        ip: ykpack::IPlace,
-    ) {
-        self.declare_local(l, sir_ty);
-        self.push_stmt(bb, ykpack::Statement::Assign(l, ip));
-    }
-
     fn declare_local(&mut self, l: ykpack::Local, tyid: ykpack::TypeId) {
         let slot = self.local_decls.get_mut(usize::try_from(l.0).unwrap()).unwrap();
         debug_assert!(slot.is_none()); // Check it wasn't already declared.
