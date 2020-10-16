@@ -265,7 +265,15 @@ impl SirFuncCx<'tcx> {
         let lhs = self.lower_place(bx, bb, lvalue);
         let dest_ty = lvalue.ty(self.mir, self.tcx).ty;
         let rhs = self.lower_rvalue(bx, bb, dest_ty, rvalue);
-        self.push_stmt(bb, ykpack::Statement::IStore(lhs, rhs));
+
+        match (lvalue.projection.is_empty(), &rhs) {
+            (true, ykpack::IPlace::Val{local: rl, offs: 0, ..}) => {
+                // No need for a store, just update the variable mapping.
+                let slot = self.var_map.get_mut(&lvalue.local).unwrap();
+                *slot = *rl;
+            },
+            _ => self.push_stmt(bb, ykpack::Statement::IStore(lhs, rhs)),
+        }
     }
 
     pub fn lower_operand<Bx: BuilderMethods<'a, 'tcx>>(
@@ -567,7 +575,8 @@ impl SirFuncCx<'tcx> {
         //let mirty = place.ty(self.mir, self.tcx).ty;
         let local = self.new_sir_local();
         let ip = self.lower_place(bx, bb, place);
-        let asn = ykpack::Statement::Assign(local, ip);
+        let mkref = ykpack::Statement::MkRef(local, ip);
+        self.push_stmt(bb, mkref);
         let ty = self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, dest_ty));
         self.declare_local(local, ty);
         ykpack::IPlace::Ref{local, offs: 0, ty}
