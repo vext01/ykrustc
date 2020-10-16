@@ -291,7 +291,7 @@ impl SirFuncCx<'tcx> {
     ) -> ykpack::IPlace {
         match rvalue {
             mir::Rvalue::Use(opnd) => self.lower_operand(bx, bb, opnd),
-            mir::Rvalue::Ref(_, _, p) => self.lower_ref(bx, bb, p),
+            mir::Rvalue::Ref(_, _, p) => self.lower_ref(bx, bb, dest_ty, p),
             mir::Rvalue::CheckedBinaryOp(op, opnd1, opnd2) => {
                 self.lower_binop(bx, bb, dest_ty, *op, opnd1, opnd2, true)
             }
@@ -401,10 +401,6 @@ impl SirFuncCx<'tcx> {
         ip: ykpack::IPlace,
     ) {
         self.declare_local(l, sir_ty);
-        //let slot = self.local_decls.get_mut(usize::try_from(l.0).unwrap()).unwrap();
-        //debug_assert!(slot.is_none()); // Check it wasn't already declared.
-        //*slot = Some(sir_ty);
-
         self.push_stmt(bb, ykpack::Statement::Assign(l, ip));
     }
 
@@ -414,50 +410,20 @@ impl SirFuncCx<'tcx> {
         *slot = Some(tyid);
     }
 
-    //pub fn lower_projection(&self, pe: &mir::PlaceElem<'_>) -> ykpack::Projection {
-    //    match pe {
-    //        mir::ProjectionElem::Field(field, ..) => ykpack::Projection::Field(field.as_u32()),
-    //        mir::ProjectionElem::Deref => ykpack::Projection::Deref,
-    //        mir::ProjectionElem::Index(local) => {
-    //            ykpack::Projection::Index(self.lower_local(*local))
-    //        }
-    //        _ => ykpack::Projection::Unimplemented(format!("{:?}", pe)),
-    //    }
-    //}
-
-    //pub fn lower_local(&self, local: mir::Local) -> ykpack::Local {
-    //    // For the lowering of `Local`s we currently assume a 1:1 mapping from MIR to SIR. If this
-    //    // mapping turns out to be impossible or impractial, this is the place to change it.
-    //    ykpack::Local(local.as_u32())
-    //}
-
     fn lower_constant<Bx: BuilderMethods<'a, 'tcx>>(
         &mut self,
         bx: &Bx,
         bb: ykpack::BasicBlockIndex,
         constant: &mir::Constant<'tcx>,
     ) -> ykpack::IPlace {
-        todo!();
-        //let (c, cty) = match constant.literal.val {
-        //    ty::ConstKind::Value(mir::interpret::ConstValue::Scalar(s)) => {
-        //        (self.lower_scalar(constant.literal.ty, s), constant.literal.ty)
-        //    }
-        //    _ => {
-        //        return self.push_unimpl_assign(
-        //            bx,
-        //            bb,
-        //            with_no_trimmed_paths(|| format!("unimplemented constant: {:?}", constant)),
-        //        );
-        //    }
-        //};
-
-        //let cty = self.monomorphize(&cty);
-
-        //let l = self.new_sir_local();
-        //let ip = ykpack::IPlace::Const(c);
-        //let sir_tyid = self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, cty));
-        //self.push_assign_and_declare(bx, bb, sir_tyid, l, ip);
-        //l
+        match constant.literal.val {
+            ty::ConstKind::Value(mir::interpret::ConstValue::Scalar(s)) => {
+                let val = self.lower_scalar(constant.literal.ty, s);
+                let ty = self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, constant.literal.ty));
+                ykpack::IPlace::Const{val, ty}
+            }
+            _ => ykpack::IPlace::Unimplemented(with_no_trimmed_paths(|| format!("unimplemented constant: {:?}", constant))),
+        }
     }
 
     fn lower_scalar(&self, ty: Ty<'_>, s: mir::interpret::Scalar) -> ykpack::Constant {
@@ -592,17 +558,16 @@ impl SirFuncCx<'tcx> {
         &mut self,
         bx: &Bx,
         bb: ykpack::BasicBlockIndex,
-        //ty: Ty,
+        dest_ty: Ty<'tcx>,
         place: &mir::Place<'tcx>,
     ) -> ykpack::IPlace {
-        todo!();
         //let mirty = place.ty(self.mir, self.tcx).ty;
-        //let l = self.new_sir_local();
-        //let inner = self.lower_place(bx, bb, place);
-        //let ip = ykpack::IPlace::Ref(inner, ykpack::Derivative::ByteOffset(0));
-        //let sir_tyid = self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, mirty));
-        //self.push_assign_and_declare(bx, bb, sir_tyid, l, ip);
-        //l
+        let local = self.new_sir_local();
+        let ip = self.lower_place(bx, bb, place);
+        let asn = ykpack::Statement::Assign(local, ip);
+        let ty = self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, dest_ty));
+        self.declare_local(local, ty);
+        ykpack::IPlace::Ref{local, offs: 0, ty}
     }
 
     // FIXME rename callees to make it clear we are lowering a type, not a value.
