@@ -123,7 +123,6 @@ pub struct SirFuncCx<'tcx> {
 
 impl SirFuncCx<'tcx> {
     pub fn new(tcx: TyCtxt<'tcx>, instance: &Instance<'tcx>, mir: &'tcx mir::Body<'tcx>) -> Self {
-        dbg!(instance);
         let mut flags = 0;
         for attr in tcx.get_attrs(instance.def_id()).iter() {
             if tcx.sess.check_name(attr, sym::do_not_trace) {
@@ -244,6 +243,8 @@ impl SirFuncCx<'tcx> {
         bb: ykpack::BasicBlockIndex,
         stmt: &mir::Statement<'tcx>,
     ) {
+        self.push_stmt(bb, ykpack::Statement::Debug(with_no_trimmed_paths(|| format!("{:?}", stmt))));
+
         match stmt.kind {
             mir::StatementKind::Assign(box (ref place, ref rvalue)) => {
                 let assign = self.lower_assign_stmt(bx, bb, place, rvalue);
@@ -294,7 +295,7 @@ impl SirFuncCx<'tcx> {
             mir::Rvalue::CheckedBinaryOp(op, opnd1, opnd2) => {
                 self.lower_binop(bx, bb, dest_ty, *op, opnd1, opnd2, true)
             }
-            _ => ykpack::IPlace::Unimplemented(format!("unimplemented rvalue: {:?}", rvalue)),
+            _ => ykpack::IPlace::Unimplemented(with_no_trimmed_paths(|| format!("unimplemented rvalue: {:?}", rvalue))),
         }
     }
 
@@ -391,12 +392,11 @@ impl SirFuncCx<'tcx> {
                         // Deref is last in the projection chain, so it's a copying deref.
                         return ykpack::IPlace::Unimplemented(format!("copy deref"));
                     } else {
-                        debug_assert!(cur_mirty.is_ref());
                         if let ty::Ref(_, ty, _) = cur_mirty.kind() {
                             // Just remove the reference from the type.
                             ty
                         } else {
-                            unreachable!("derefed a non-ref");
+                            return ykpack::IPlace::Unimplemented(format!("deref non-ref"));
                         }
                     }
                 },
