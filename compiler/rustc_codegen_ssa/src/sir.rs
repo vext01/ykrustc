@@ -273,13 +273,12 @@ impl SirFuncCx<'tcx> {
         bb: ykpack::BasicBlockIndex,
         operand: &mir::Operand<'tcx>,
     ) -> ykpack::IPlace {
-        todo!();
-        //match operand {
-        //    mir::Operand::Copy(place) | mir::Operand::Move(place) => {
-        //        self.lower_place(bx, bb, place)
-        //    }
-        //    mir::Operand::Constant(cst) => self.lower_constant(bx, bb, cst),
-        //}
+        match operand {
+            mir::Operand::Copy(place) | mir::Operand::Move(place) => {
+                self.lower_place(bx, bb, place)
+            }
+            mir::Operand::Constant(cst) => self.lower_constant(bx, bb, cst),
+        }
     }
 
     fn lower_rvalue<Bx: BuilderMethods<'a, 'tcx>>(
@@ -331,14 +330,17 @@ impl SirFuncCx<'tcx> {
         bb: ykpack::BasicBlockIndex,
         place: &mir::Place<'_>,
     ) -> ykpack::IPlace {
-        dbg!(place);
         // We start with the base local and project away from it.
-        let cur_mirty = self.monomorphize(&self.mir.local_decls[place.local].ty);
+        let mut cur_mirty = self.monomorphize(&self.mir.local_decls[place.local].ty);
         let mut cur_iplace = ykpack::IPlace::Val {
             local: self.sir_local(&place.local),
             offs: 0,
             ty: self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, cur_mirty))
         };
+
+        // Deref has some special rules if it appears at the end of the chain.
+        let mut cur_proj_idx = 0;
+        let num_projs = place.projection.len();
 
         // Loop over the projection chain, updating cur_iplace as we go.
         for pj in place.projection {
@@ -383,10 +385,25 @@ impl SirFuncCx<'tcx> {
                         }
                         _ => return ykpack::IPlace::Unimplemented(format!("field access on: {:?}", cur_mirty)),
                     }
-                }
+                },
+                mir::ProjectionElem::Deref => {
+                    if cur_proj_idx == num_projs {
+                        // Deref is last in the projection chain, so it's a copying deref.
+                        return ykpack::IPlace::Unimplemented(format!("copy deref"));
+                    } else {
+                        debug_assert!(cur_mirty.is_ref());
+                        if let ty::Ref(_, ty, _) = cur_mirty.kind() {
+                            // Just remove the reference from the type.
+                            ty
+                        } else {
+                            unreachable!("derefed a non-ref");
+                        }
+                    }
+                },
                 _ => return ykpack::IPlace::Unimplemented(format!("projection: {:?}", pj)),
             };
-            let cur_mirty = self.monomorphize(&next_mirty);
+            cur_mirty = self.monomorphize(&next_mirty);
+            cur_proj_idx += 1;
         }
         cur_iplace
     }
@@ -525,26 +542,25 @@ impl SirFuncCx<'tcx> {
         opnd2: &mir::Operand<'tcx>,
         checked: bool,
     ) -> ykpack::IPlace {
-        todo!();
-        //let op = binop_lowerings!(
-        //    op, Add, Sub, Mul, Div, Rem, BitXor, BitAnd, BitOr, Shl, Shr, Eq, Lt, Le, Ne, Ge, Gt,
-        //    Offset
-        //);
-        //let opnd1 = self.lower_operand(bx, bb, opnd1);
-        //let opnd2 = self.lower_operand(bx, bb, opnd2);
+        let op = binop_lowerings!(
+            op, Add, Sub, Mul, Div, Rem, BitXor, BitAnd, BitOr, Shl, Shr, Eq, Lt, Le, Ne, Ge, Gt,
+            Offset
+        );
+        let opnd1 = self.lower_operand(bx, bb, opnd1);
+        let opnd2 = self.lower_operand(bx, bb, opnd2);
 
-        //if checked {
-        //    debug_assert!(CHECKABLE_BINOPS.contains(&op));
-        //}
+        if checked {
+            debug_assert!(CHECKABLE_BINOPS.contains(&op));
+        }
 
-        ////let mirty = opnd1.ty(self.mir, self.tcx).ty; // dest type is the same as the first operand.
-        //let dest = self.new_sir_local();
-        //let sir_tyid = self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, dest_ty));
-        //let stmt = ykpack::Statement::BinaryOp { dest, op, opnd1, opnd2, checked };
-        //self.declare_local(dest, sir_tyid);
-        //self.push_stmt(bb, stmt);
+        let dest = self.new_sir_local();
+        let ty = self.lower_ty_and_layout(self.tcx, bx, &self.layout_of(bx, dest_ty));
+        self.declare_local(dest, ty);
+        let dest_ip = ykpack::IPlace::Val{local: dest, offs: 0, ty};
+        let stmt = ykpack::Statement::BinaryOp { dest: dest_ip.clone(), op, opnd1, opnd2, checked };
+        self.push_stmt(bb, stmt);
 
-        //dest
+        dest_ip
     }
 
     fn lower_bool(&self, s: mir::interpret::Scalar) -> ykpack::Constant {
