@@ -193,11 +193,16 @@ impl SirFuncCx<'tcx> {
 
     /// Returns the SIR local corresponding with MIR local `ml`. A new SIR local is allocated if
     /// we've never seen this MIR local before.
-    fn sir_local<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, ml: &mir::Local) -> ykpack::IPlace {
+    fn sir_local<Bx: BuilderMethods<'a, 'tcx>>(
+        &mut self,
+        bx: &Bx,
+        ml: &mir::Local,
+    ) -> ykpack::IPlace {
         if let Some(ip) = self.var_map.get(ml) {
             ip.clone()
         } else {
-            let sirty = self.lower_ty_and_layout(bx, &self.layout_of(bx, self.mir.local_decls[*ml].ty));
+            let sirty =
+                self.lower_ty_and_layout(bx, &self.layout_of(bx, self.mir.local_decls[*ml].ty));
             let nl = self.new_sir_local(bx, sirty, false);
             self.var_map.insert(*ml, nl.clone());
             nl
@@ -205,19 +210,28 @@ impl SirFuncCx<'tcx> {
     }
 
     /// Returns a zero-offset IPlace for a new SIR local.
-    fn new_sir_local<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, sirty: ykpack::TypeId, is_ref: bool) -> ykpack::IPlace {
+    fn new_sir_local<Bx: BuilderMethods<'a, 'tcx>>(
+        &mut self,
+        bx: &Bx,
+        sirty: ykpack::TypeId,
+        is_ref: bool,
+    ) -> ykpack::IPlace {
         if self.next_sir_local == 0 {
             // This is the first time we have allocated SIR locals. The return place and the
             // argument locals should come first, so let's allocate them right now.
             for idx in 0..=self.mir.arg_count {
                 let ml = mir::Local::from_usize(idx);
-                let sirty = self.lower_ty_and_layout(bx, &self.layout_of(bx, self.mir.local_decls[ml].ty));
-                self.func.local_decls.push(ykpack::LocalDecl{ty: sirty});
-                self.var_map.insert(ml, ykpack::IPlace::Val{
-                    local: ykpack::Local(u32::try_from(idx).unwrap()),
-                    offs: 0,
-                    ty: sirty,
-                });
+                let sirty =
+                    self.lower_ty_and_layout(bx, &self.layout_of(bx, self.mir.local_decls[ml].ty));
+                self.func.local_decls.push(ykpack::LocalDecl { ty: sirty });
+                self.var_map.insert(
+                    ml,
+                    ykpack::IPlace::Val {
+                        local: ykpack::Local(u32::try_from(idx).unwrap()),
+                        offs: 0,
+                        ty: sirty,
+                    },
+                );
                 dbg!(ml, idx);
                 self.next_sir_local += 1;
             }
@@ -225,12 +239,12 @@ impl SirFuncCx<'tcx> {
 
         let idx = self.next_sir_local;
         self.next_sir_local += 1;
-        self.func.local_decls.push(ykpack::LocalDecl{ty: sirty});
+        self.func.local_decls.push(ykpack::LocalDecl { ty: sirty });
         if is_ref {
             todo!();
-            //ykpack::IPlace::Ref{local: ykpack::Local(idx), offs: 0, ty: sirty}
+        //ykpack::IPlace::Ref{local: ykpack::Local(idx), offs: 0, ty: sirty}
         } else {
-            ykpack::IPlace::Val{local: ykpack::Local(idx), offs: 0, ty: sirty}
+            ykpack::IPlace::Val { local: ykpack::Local(idx), offs: 0, ty: sirty }
         }
     }
 
@@ -259,7 +273,10 @@ impl SirFuncCx<'tcx> {
         bb: ykpack::BasicBlockIndex,
         stmt: &mir::Statement<'tcx>,
     ) {
-        self.push_stmt(bb, ykpack::Statement::Debug(with_no_trimmed_paths(|| format!("{:?}", stmt))));
+        self.push_stmt(
+            bb,
+            ykpack::Statement::Debug(with_no_trimmed_paths(|| format!("{:?}", stmt))),
+        );
 
         match stmt.kind {
             mir::StatementKind::Assign(box (ref place, ref rvalue)) => {
@@ -317,8 +334,12 @@ impl SirFuncCx<'tcx> {
         match rvalue {
             mir::Rvalue::Use(opnd) => self.lower_operand(bx, bb, opnd),
             mir::Rvalue::Ref(_, _, p) => self.lower_ref(bx, bb, dest_ty, p),
-            mir::Rvalue::CheckedBinaryOp(op, opnd1, opnd2) => self.lower_binop(bx, bb, dest_ty, *op, opnd1, opnd2, true),
-            _ => ykpack::IPlace::Unimplemented(with_no_trimmed_paths(|| format!("unimplemented rvalue: {:?}", rvalue))),
+            mir::Rvalue::CheckedBinaryOp(op, opnd1, opnd2) => {
+                self.lower_binop(bx, bb, dest_ty, *op, opnd1, opnd2, true)
+            }
+            _ => ykpack::IPlace::Unimplemented(with_no_trimmed_paths(|| {
+                format!("unimplemented rvalue: {:?}", rvalue)
+            })),
         }
     }
 
@@ -338,13 +359,20 @@ impl SirFuncCx<'tcx> {
         bx.layout_of(self.monomorphize(&t))
     }
 
-    fn offset_iplace<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, ip: &mut ykpack::IPlace, add: usize, mirty: Ty<'tcx>) {
+    fn offset_iplace<Bx: BuilderMethods<'a, 'tcx>>(
+        &mut self,
+        bx: &Bx,
+        ip: &mut ykpack::IPlace,
+        add: usize,
+        mirty: Ty<'tcx>,
+    ) {
         match ip {
-            ykpack::IPlace::Val{local, offs, ty} => { //| ykpack::IPlace::Ref{local, offs, ty} => {
+            ykpack::IPlace::Val { local, offs, ty } => {
+                //| ykpack::IPlace::Ref{local, offs, ty} => {
                 *offs += u32::try_from(add).unwrap();
                 *ty = self.lower_ty_and_layout(bx, &self.layout_of(bx, mirty));
-            },
-            ykpack::IPlace::Const{..} => {
+            }
+            ykpack::IPlace::Const { .. } => {
                 // Oddly enough this happens. It seems to be only ever with an offset of 0 and we
                 // assume that the type doesn't change.
                 assert_eq!(add, 0);
@@ -379,7 +407,12 @@ impl SirFuncCx<'tcx> {
                                 let st_lay = ty_lay.for_variant(bx, VariantIdx::from_u32(0));
                                 if let FieldsShape::Arbitrary { offsets, .. } = &st_lay.fields {
                                     let new_mirty = st_lay.field(bx, fi).ty;
-                                    self.offset_iplace(bx, &mut cur_iplace, offsets[fi].bytes_usize(), new_mirty);
+                                    self.offset_iplace(
+                                        bx,
+                                        &mut cur_iplace,
+                                        offsets[fi].bytes_usize(),
+                                        new_mirty,
+                                    );
                                     new_mirty
                                 } else {
                                     return ykpack::IPlace::Unimplemented(format!(
@@ -388,11 +421,12 @@ impl SirFuncCx<'tcx> {
                                     ));
                                 }
                             } else if def.is_enum() {
-                                    return ykpack::IPlace::Unimplemented(
-                                    format!("enum_projection: {:?}", def));
+                                return ykpack::IPlace::Unimplemented(format!(
+                                    "enum_projection: {:?}",
+                                    def
+                                ));
                             } else {
-                                return ykpack::IPlace::Unimplemented(
-                                    format!("adt: {:?}", def));
+                                return ykpack::IPlace::Unimplemented(format!("adt: {:?}", def));
                             }
                         }
                         ty::Tuple(..) => {
@@ -400,17 +434,30 @@ impl SirFuncCx<'tcx> {
                             match &tup_lay.fields {
                                 FieldsShape::Arbitrary { offsets, .. } => {
                                     let new_mirty = tup_lay.field(bx, fi).ty;
-                                    self.offset_iplace(bx, &mut cur_iplace, offsets[fi].bytes_usize(), new_mirty);
+                                    self.offset_iplace(
+                                        bx,
+                                        &mut cur_iplace,
+                                        offsets[fi].bytes_usize(),
+                                        new_mirty,
+                                    );
                                     new_mirty
                                 }
                                 _ => {
-                                    return ykpack::IPlace::Unimplemented(format!("tuple field shape: {:?}", tup_lay.fields));
+                                    return ykpack::IPlace::Unimplemented(format!(
+                                        "tuple field shape: {:?}",
+                                        tup_lay.fields
+                                    ));
                                 }
                             }
                         }
-                        _ => return ykpack::IPlace::Unimplemented(format!("field access on: {:?}", cur_mirty)),
+                        _ => {
+                            return ykpack::IPlace::Unimplemented(format!(
+                                "field access on: {:?}",
+                                cur_mirty
+                            ));
+                        }
                     }
-                },
+                }
                 mir::ProjectionElem::Deref => {
                     if cur_proj_idx == num_projs {
                         // Deref is last in the projection chain, so it's a copying deref.
@@ -423,7 +470,7 @@ impl SirFuncCx<'tcx> {
                             return ykpack::IPlace::Unimplemented(format!("deref non-ref"));
                         }
                     }
-                },
+                }
                 _ => return ykpack::IPlace::Unimplemented(format!("projection: {:?}", pj)),
             };
             cur_mirty = self.monomorphize(&next_mirty);
@@ -442,9 +489,11 @@ impl SirFuncCx<'tcx> {
             ty::ConstKind::Value(mir::interpret::ConstValue::Scalar(s)) => {
                 let val = self.lower_scalar(constant.literal.ty, s);
                 let ty = self.lower_ty_and_layout(bx, &self.layout_of(bx, constant.literal.ty));
-                ykpack::IPlace::Const{val, ty}
+                ykpack::IPlace::Const { val, ty }
             }
-            _ => ykpack::IPlace::Unimplemented(with_no_trimmed_paths(|| format!("unimplemented constant: {:?}", constant))),
+            _ => ykpack::IPlace::Unimplemented(with_no_trimmed_paths(|| {
+                format!("unimplemented constant: {:?}", constant)
+            })),
         }
     }
 
@@ -680,10 +729,7 @@ impl SirFuncCx<'tcx> {
                     let mut sir_offsets = Vec::new();
                     let mut sir_tys = Vec::new();
                     for (idx, offs) in offsets.iter().enumerate() {
-                        sir_tys.push(self.lower_ty_and_layout(
-                            bx,
-                            &struct_layout.field(bx, idx),
-                        ));
+                        sir_tys.push(self.lower_ty_and_layout(bx, &struct_layout.field(bx, idx)));
                         sir_offsets.push(offs.bytes());
                     }
 
