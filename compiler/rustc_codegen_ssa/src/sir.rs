@@ -179,9 +179,7 @@ impl SirFuncCx<'tcx> {
         if crate_name == "core" || crate_name == "alloc" {
             flags |= ykpack::bodyflags::DO_NOT_TRACE;
         }
-
         let var_map: FxHashMap<mir::Local, ykpack::IPlace> = FxHashMap::default();
-        //var_map.insert(mir::Local::from_u32(0), ykpack::Local(0));
 
         Self {
             instance: instance.clone(),
@@ -200,14 +198,31 @@ impl SirFuncCx<'tcx> {
             ip.clone()
         } else {
             let sirty = self.lower_ty_and_layout(bx, &self.layout_of(bx, self.mir.local_decls[*ml].ty));
-            let nl = self.new_sir_local(sirty, false);
+            let nl = self.new_sir_local(bx, sirty, false);
             self.var_map.insert(*ml, nl.clone());
             nl
         }
     }
 
     /// Returns a zero-offset IPlace for a new SIR local.
-    fn new_sir_local(&mut self, sirty: ykpack::TypeId, is_ref: bool) -> ykpack::IPlace {
+    fn new_sir_local<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, sirty: ykpack::TypeId, is_ref: bool) -> ykpack::IPlace {
+        if self.next_sir_local == 0 {
+            // This is the first time we have allocated SIR locals. The return place and the
+            // argument locals should come first, so let's allocate them right now.
+            for idx in 0..=self.mir.arg_count {
+                let ml = mir::Local::from_usize(idx);
+                let sirty = self.lower_ty_and_layout(bx, &self.layout_of(bx, self.mir.local_decls[ml].ty));
+                self.func.local_decls.push(ykpack::LocalDecl{ty: sirty});
+                self.var_map.insert(ml, ykpack::IPlace::Val{
+                    local: ykpack::Local(u32::try_from(idx).unwrap()),
+                    offs: 0,
+                    ty: sirty,
+                });
+                dbg!(ml, idx);
+                self.next_sir_local += 1;
+            }
+        }
+
         let idx = self.next_sir_local;
         self.next_sir_local += 1;
         self.func.local_decls.push(ykpack::LocalDecl{ty: sirty});
@@ -263,19 +278,19 @@ impl SirFuncCx<'tcx> {
         lvalue: &mir::Place<'tcx>,
         rvalue: &mir::Rvalue<'tcx>,
     ) {
-        let lhs = self.lower_place(bx, bb, lvalue);
         let dest_ty = lvalue.ty(self.mir, self.tcx).ty;
         let rhs = self.lower_rvalue(bx, bb, dest_ty, rvalue);
 
-        // Potential optimisation, but we need to be careful about the return local.
-        //if lvalue.projection.is_empty() {
-        //    // No need for a store, just update the variable mapping and the corresponding IPlace
-        //    // will appear inline the next time lvalue.local appears in a MIR statement.
-        //    let slot = self.var_map.get_mut(&lvalue.local).unwrap();
-        //    *slot = rhs;
-        //} else {
-        self.push_stmt(bb, ykpack::Statement::IStore(lhs, rhs));
-        //}
+        if lvalue.projection.is_empty() && lvalue.local != mir::RETURN_PLACE {
+            // No need for a store, just update the variable mapping and the corresponding IPlace
+            // will appear inline the next time lvalue.local appears in a MIR statement.
+            //let slot = self.var_map.get_mut(&lvalue.local).unwrap();
+            let old = self.var_map.insert(lvalue.local, rhs);
+            debug_assert!(old.is_none()); // Shouldn't be defined yet.
+        } else {
+            let lhs = self.lower_place(bx, bb, lvalue);
+            self.push_stmt(bb, ykpack::Statement::IStore(lhs, rhs));
+        }
     }
 
     pub fn lower_operand<Bx: BuilderMethods<'a, 'tcx>>(
@@ -325,7 +340,7 @@ impl SirFuncCx<'tcx> {
 
     fn offset_iplace<Bx: BuilderMethods<'a, 'tcx>>(&mut self, bx: &Bx, ip: &mut ykpack::IPlace, add: usize, mirty: Ty<'tcx>) {
         match ip {
-            ykpack::IPlace::Val{local, offs, ty} | ykpack::IPlace::Ref{local, offs, ty} => {
+            ykpack::IPlace::Val{local, offs, ty} => { //| ykpack::IPlace::Ref{local, offs, ty} => {
                 *offs += u32::try_from(add).unwrap();
                 *ty = self.lower_ty_and_layout(bx, &self.layout_of(bx, mirty));
             },
@@ -544,7 +559,7 @@ impl SirFuncCx<'tcx> {
         }
 
         let ty = self.lower_ty_and_layout(bx, &self.layout_of(bx, dest_ty));
-        let dest_ip = self.new_sir_local(ty, false);
+        let dest_ip = self.new_sir_local(bx, ty, false);
         let stmt = ykpack::Statement::BinaryOp { dest: dest_ip.clone(), op, opnd1, opnd2, checked };
         self.push_stmt(bb, stmt);
 
@@ -567,7 +582,7 @@ impl SirFuncCx<'tcx> {
     ) -> ykpack::IPlace {
         let ty = self.lower_ty_and_layout(bx, &self.layout_of(bx, dest_ty));
         //let dest_ip = self.new_sir_local(ty, true);
-        let dest_ip = self.new_sir_local(ty, false);
+        let dest_ip = self.new_sir_local(bx, ty, false);
         let src_ip = self.lower_place(bx, bb, place);
         let mkref = ykpack::Statement::MkRef(dest_ip.clone(), src_ip);
         self.push_stmt(bb, mkref);
