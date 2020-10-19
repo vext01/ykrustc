@@ -212,7 +212,8 @@ impl SirFuncCx<'tcx> {
         self.next_sir_local += 1;
         self.func.local_decls.push(ykpack::LocalDecl{ty: sirty});
         if is_ref {
-            ykpack::IPlace::Ref{local: ykpack::Local(idx), offs: 0, ty: sirty}
+            todo!();
+            //ykpack::IPlace::Ref{local: ykpack::Local(idx), offs: 0, ty: sirty}
         } else {
             ykpack::IPlace::Val{local: ykpack::Local(idx), offs: 0, ty: sirty}
         }
@@ -565,7 +566,8 @@ impl SirFuncCx<'tcx> {
         place: &mir::Place<'tcx>,
     ) -> ykpack::IPlace {
         let ty = self.lower_ty_and_layout(bx, &self.layout_of(bx, dest_ty));
-        let dest_ip = self.new_sir_local(ty, true);
+        //let dest_ip = self.new_sir_local(ty, true);
+        let dest_ip = self.new_sir_local(ty, false);
         let src_ip = self.lower_place(bx, bb, place);
         let mkref = ykpack::Statement::MkRef(dest_ip.clone(), src_ip);
         self.push_stmt(bb, mkref);
