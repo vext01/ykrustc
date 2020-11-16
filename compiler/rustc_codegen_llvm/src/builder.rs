@@ -1235,6 +1235,12 @@ impl BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
     fn do_not_inline(&mut self, llret: &'ll Value) {
         llvm::Attribute::NoInline.apply_callsite(llvm::AttributePlace::Function, llret);
     }
+
+    fn ptwrite64(&mut self) {
+        let val = self.cx.const_int(self.cx.type_i64(), 0);
+        let intrinsic = self.get_intrinsic("llvm.x86.ptwrite64");
+        self.call(intrinsic, &[val], None);
+    }
 }
 
 impl StaticBuilderMethods for Builder<'a, 'll, 'tcx> {

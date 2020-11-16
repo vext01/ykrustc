@@ -295,4 +295,6 @@ pub trait BuilderMethods<'a, 'tcx>:
 
     unsafe fn delete_basic_block(&mut self, bb: Self::BasicBlock);
     fn do_not_inline(&mut self, llret: Self::Value);
+
+    fn ptwrite64(&mut self);
 }

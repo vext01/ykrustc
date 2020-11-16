@@ -255,6 +255,9 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
     // Apply debuginfo to the newly allocated locals.
     fx.debug_introduce_locals(&mut bx);
 
+    // FIXME
+    bx.ptwrite64();
+
     // Branch to the START block, if it's not the entry block.
     if reentrant_start_block {
         bx.br(fx.blocks[mir::START_BLOCK]);
