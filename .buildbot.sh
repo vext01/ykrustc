@@ -16,7 +16,7 @@ SNAP_DIR=/opt/ykrustc-bin-snapshots
 ulimit -d $((1024 * 1024 * 10)) # 10 GiB
 
 # Check for some common developer mistakes.
-/opt/buildbot/bin/python3 .buildbot_prechecks.py
+#/opt/buildbot/bin/python3 .buildbot_prechecks.py
 
 # Patch the yk dependency if necessary.
 # This step requires the 'github3.py' module.
