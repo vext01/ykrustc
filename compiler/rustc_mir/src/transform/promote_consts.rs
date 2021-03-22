@@ -643,7 +643,7 @@ impl<'tcx> Validator<'_, 'tcx> {
                 self.validate_operand(operand)?;
             }
 
-            Rvalue::BinaryOp(op, lhs, rhs) | Rvalue::CheckedBinaryOp(op, lhs, rhs) => {
+            Rvalue::BinaryOp(op, box (lhs, rhs)) | Rvalue::CheckedBinaryOp(op, box (lhs, rhs)) => {
                 let op = *op;
                 let lhs_ty = lhs.ty(self.body, self.tcx);
 
@@ -921,7 +921,7 @@ impl<'a, 'tcx> Promoter<'a, 'tcx> {
                         let unit = Rvalue::Use(Operand::Constant(box Constant {
                             span: statement.source_info.span,
                             user_ty: None,
-                            literal: ty::Const::zero_sized(self.tcx, self.tcx.types.unit),
+                            literal: ty::Const::zero_sized(self.tcx, self.tcx.types.unit).into(),
                         }));
                         mem::replace(rhs, unit)
                     },
@@ -998,20 +998,22 @@ impl<'a, 'tcx> Promoter<'a, 'tcx> {
                 Operand::Constant(Box::new(Constant {
                     span,
                     user_ty: None,
-                    literal: tcx.mk_const(ty::Const {
-                        ty,
-                        val: ty::ConstKind::Unevaluated(
-                            def,
-                            InternalSubsts::for_item(tcx, def.did, |param, _| {
-                                if let ty::GenericParamDefKind::Lifetime = param.kind {
-                                    tcx.lifetimes.re_erased.into()
-                                } else {
-                                    tcx.mk_param_from_def(param)
-                                }
+                    literal: tcx
+                        .mk_const(ty::Const {
+                            ty,
+                            val: ty::ConstKind::Unevaluated(ty::Unevaluated {
+                                def,
+                                substs: InternalSubsts::for_item(tcx, def.did, |param, _| {
+                                    if let ty::GenericParamDefKind::Lifetime = param.kind {
+                                        tcx.lifetimes.re_erased.into()
+                                    } else {
+                                        tcx.mk_param_from_def(param)
+                                    }
+                                }),
+                                promoted: Some(promoted_id),
                             }),
-                            Some(promoted_id),
-                        ),
-                    }),
+                        })
+                        .into(),
                 }))
             };
             let (blocks, local_decls) = self.source.basic_blocks_and_local_decls_mut();
@@ -1177,7 +1179,7 @@ pub fn promote_candidates<'tcx>(
             0,
             vec![],
             body.span,
-            body.generator_kind,
+            body.generator_kind(),
         );
 
         let promoter = Promoter {
@@ -1230,4 +1232,39 @@ pub fn promote_candidates<'tcx>(
     }
 
     promotions
+}
+
+/// This function returns `true` if the function being called in the array
+/// repeat expression is a `const` function.
+crate fn is_const_fn_in_array_repeat_expression<'tcx>(
+    ccx: &ConstCx<'_, 'tcx>,
+    place: &Place<'tcx>,
+    body: &Body<'tcx>,
+) -> bool {
+    match place.as_local() {
+        // rule out cases such as: `let my_var = some_fn(); [my_var; N]`
+        Some(local) if body.local_decls[local].is_user_variable() => return false,
+        None => return false,
+        _ => {}
+    }
+
+    for block in body.basic_blocks() {
+        if let Some(Terminator { kind: TerminatorKind::Call { func, destination, .. }, .. }) =
+            &block.terminator
+        {
+            if let Operand::Constant(box Constant { literal, .. }) = func {
+                if let ty::FnDef(def_id, _) = *literal.ty().kind() {
+                    if let Some((destination_place, _)) = destination {
+                        if destination_place == place {
+                            if is_const_fn(ccx.tcx, def_id) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }

@@ -325,7 +325,7 @@ impl<T> Cell<T> {
     /// let c = Cell::new(5);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
-    #[rustc_const_stable(feature = "const_cell_new", since = "1.32.0")]
+    #[rustc_const_stable(feature = "const_cell_new", since = "1.24.0")]
     #[inline]
     pub const fn new(value: T) -> Cell<T> {
         Cell { value: UnsafeCell::new(value) }
@@ -378,7 +378,7 @@ impl<T> Cell<T> {
         }
     }
 
-    /// Replaces the contained value, and returns it.
+    /// Replaces the contained value with `val`, and returns the old contained value.
     ///
     /// # Examples
     ///
@@ -655,7 +655,7 @@ impl<T> RefCell<T> {
     /// let c = RefCell::new(5);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
-    #[rustc_const_stable(feature = "const_refcell_new", since = "1.32.0")]
+    #[rustc_const_stable(feature = "const_refcell_new", since = "1.24.0")]
     #[inline]
     pub const fn new(value: T) -> RefCell<T> {
         RefCell { value: UnsafeCell::new(value), borrow: Cell::new(UNUSED) }
@@ -1619,17 +1619,18 @@ impl<T: ?Sized + fmt::Display> fmt::Display for RefMut<'_, T> {
 
 /// The core primitive for interior mutability in Rust.
 ///
-/// `UnsafeCell<T>` is a type that wraps some `T` and indicates unsafe interior operations on the
-/// wrapped type. Types with an `UnsafeCell<T>` field are considered to have an 'unsafe interior'.
-/// The `UnsafeCell<T>` type is the only legal way to obtain aliasable data that is considered
-/// mutable. In general, transmuting an `&T` type into an `&mut T` is considered undefined behavior.
+/// If you have a reference `&T`, then normally in Rust the compiler performs optimizations based on
+/// the knowledge that `&T` points to immutable data. Mutating that data, for example through an
+/// alias or by transmuting an `&T` into an `&mut T`, is considered undefined behavior.
+/// `UnsafeCell<T>` opts-out of the immutability guarantee for `&T`: a shared reference
+/// `&UnsafeCell<T>` may point to data that is being mutated. This is called "interior mutability".
 ///
-/// If you have a reference `&SomeStruct`, then normally in Rust all fields of `SomeStruct` are
-/// immutable. The compiler makes optimizations based on the knowledge that `&T` is not mutably
-/// aliased or mutated, and that `&mut T` is unique. `UnsafeCell<T>` is the only core language
-/// feature to work around the restriction that `&T` may not be mutated. All other types that
-/// allow internal mutability, such as `Cell<T>` and `RefCell<T>`, use `UnsafeCell` to wrap their
-/// internal data. There is *no* legal way to obtain aliasing `&mut`, not even with `UnsafeCell<T>`.
+/// All other types that allow internal mutability, such as `Cell<T>` and `RefCell<T>`, internally
+/// use `UnsafeCell` to wrap their data.
+///
+/// Note that only the immutability guarantee for shared references is affected by `UnsafeCell`. The
+/// uniqueness guarantee for mutable references is unaffected. There is *no* legal way to obtain
+/// aliasing `&mut`, not even with `UnsafeCell<T>`.
 ///
 /// The `UnsafeCell` API itself is technically very simple: [`.get()`] gives you a raw pointer
 /// `*mut T` to its contents. It is up to _you_ as the abstraction designer to use that raw pointer

@@ -14,7 +14,7 @@ use crate::middle::stability;
 use crate::mir::interpret::{self, Allocation, ConstValue, Scalar};
 use crate::mir::{Body, Field, Local, Place, PlaceElem, ProjectionKind, Promoted};
 use crate::traits;
-use crate::ty::query::{self, TyCtxtAt};
+use crate::ty::query::{self, OnDiskCache, TyCtxtAt};
 use crate::ty::subst::{GenericArg, GenericArgKind, InternalSubsts, Subst, SubstsRef, UserSubsts};
 use crate::ty::TyKind::*;
 use crate::ty::{
@@ -30,9 +30,7 @@ use rustc_attr as attr;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_data_structures::profiling::SelfProfilerRef;
 use rustc_data_structures::sharded::{IntoPointer, ShardedHashMap};
-use rustc_data_structures::stable_hasher::{
-    hash_stable_hashmap, HashStable, StableHasher, StableVec,
-};
+use rustc_data_structures::stable_hasher::{HashStable, StableHasher, StableVec};
 use rustc_data_structures::steal::Steal;
 use rustc_data_structures::sync::{self, Lock, Lrc, WorkerLocal};
 use rustc_errors::ErrorReported;
@@ -47,6 +45,7 @@ use rustc_hir::{
 };
 use rustc_index::vec::{Idx, IndexVec};
 use rustc_macros::HashStable;
+use rustc_middle::mir::FakeReadCause;
 use rustc_serialize::opaque::{FileEncodeResult, FileEncoder};
 use rustc_session::config::{BorrowckMode, CrateType, OutputFilenames};
 use rustc_session::lint::{Level, Lint};
@@ -94,6 +93,8 @@ pub struct CtxtInterners<'tcx> {
     projs: InternedSet<'tcx, List<ProjectionKind>>,
     place_elems: InternedSet<'tcx, List<PlaceElem<'tcx>>>,
     const_: InternedSet<'tcx, Const<'tcx>>,
+    /// Const allocations.
+    allocation: InternedSet<'tcx, Allocation>,
 }
 
 impl<'tcx> CtxtInterners<'tcx> {
@@ -111,6 +112,7 @@ impl<'tcx> CtxtInterners<'tcx> {
             projs: Default::default(),
             place_elems: Default::default(),
             const_: Default::default(),
+            allocation: Default::default(),
         }
     }
 
@@ -206,17 +208,24 @@ pub struct LocalTableInContext<'a, V> {
 /// would be in a different frame of reference and using its `local_id`
 /// would result in lookup errors, or worse, in silently wrong data being
 /// stored/returned.
+#[inline]
 fn validate_hir_id_for_typeck_results(hir_owner: LocalDefId, hir_id: hir::HirId) {
     if hir_id.owner != hir_owner {
-        ty::tls::with(|tcx| {
-            bug!(
-                "node {} with HirId::owner {:?} cannot be placed in TypeckResults with hir_owner {:?}",
-                tcx.hir().node_to_string(hir_id),
-                hir_id.owner,
-                hir_owner
-            )
-        });
+        invalid_hir_id_for_typeck_results(hir_owner, hir_id);
     }
+}
+
+#[cold]
+#[inline(never)]
+fn invalid_hir_id_for_typeck_results(hir_owner: LocalDefId, hir_id: hir::HirId) {
+    ty::tls::with(|tcx| {
+        bug!(
+            "node {} with HirId::owner {:?} cannot be placed in TypeckResults with hir_owner {:?}",
+            tcx.hir().node_to_string(hir_id),
+            hir_id.owner,
+            hir_owner
+        )
+    });
 }
 
 impl<'a, V> LocalTableInContext<'a, V> {
@@ -375,9 +384,6 @@ pub struct TypeckResults<'tcx> {
     /// <https://github.com/rust-lang/rfcs/blob/master/text/2005-match-ergonomics.md#definitions>
     pat_adjustments: ItemLocalMap<Vec<Ty<'tcx>>>,
 
-    /// Borrows
-    pub upvar_capture_map: ty::UpvarCaptureMap<'tcx>,
-
     /// Records the reasons that we picked the kind of each closure;
     /// not all closures are present in the map.
     closure_kind_origins: ItemLocalMap<(Span, HirPlace<'tcx>)>,
@@ -413,15 +419,33 @@ pub struct TypeckResults<'tcx> {
     /// by this function.
     pub concrete_opaque_types: FxHashMap<DefId, ResolvedOpaqueTy<'tcx>>,
 
-    /// Given the closure ID this map provides the list of UpvarIDs used by it.
-    /// The upvarID contains the HIR node ID and it also contains the full path
-    /// leading to the member of the struct or tuple that is used instead of the
-    /// entire variable.
-    pub closure_captures: ty::UpvarListMap,
-
     /// Tracks the minimum captures required for a closure;
     /// see `MinCaptureInformationMap` for more details.
     pub closure_min_captures: ty::MinCaptureInformationMap<'tcx>,
+
+    /// Tracks the fake reads required for a closure and the reason for the fake read.
+    /// When performing pattern matching for closures, there are times we don't end up
+    /// reading places that are mentioned in a closure (because of _ patterns). However,
+    /// to ensure the places are initialized, we introduce fake reads.
+    /// Consider these two examples:
+    /// ``` (discriminant matching with only wildcard arm)
+    /// let x: u8;
+    /// let c = || match x { _ => () };
+    /// ```
+    /// In this example, we don't need to actually read/borrow `x` in `c`, and so we don't
+    /// want to capture it. However, we do still want an error here, because `x` should have
+    /// to be initialized at the point where c is created. Therefore, we add a "fake read"
+    /// instead.
+    /// ``` (destructured assignments)
+    /// let c = || {
+    ///     let (t1, t2) = t;
+    /// }
+    /// ```
+    /// In the second example, we capture the disjoint fields of `t` (`t.0` & `t.1`), but
+    /// we never capture `t`. This becomes an issue when we build MIR as we require
+    /// information on `t` in order to create place `t.0` and `t.1`. We can solve this
+    /// issue by fake reading `t`.
+    pub closure_fake_reads: FxHashMap<DefId, Vec<(HirPlace<'tcx>, FakeReadCause, hir::HirId)>>,
 
     /// Stores the type, expression, span and optional scope span of all types
     /// that are live across the yield of this generator (if a generator).
@@ -447,7 +471,6 @@ impl<'tcx> TypeckResults<'tcx> {
             adjustments: Default::default(),
             pat_binding_modes: Default::default(),
             pat_adjustments: Default::default(),
-            upvar_capture_map: Default::default(),
             closure_kind_origins: Default::default(),
             liberated_fn_sigs: Default::default(),
             fru_field_types: Default::default(),
@@ -455,8 +478,8 @@ impl<'tcx> TypeckResults<'tcx> {
             used_trait_imports: Lrc::new(Default::default()),
             tainted_by_errors: None,
             concrete_opaque_types: Default::default(),
-            closure_captures: Default::default(),
             closure_min_captures: Default::default(),
+            closure_fake_reads: Default::default(),
             generator_interior_types: ty::Binder::dummy(Default::default()),
             treat_byte_string_as_slice: Default::default(),
         }
@@ -639,10 +662,6 @@ impl<'tcx> TypeckResults<'tcx> {
             .flatten()
     }
 
-    pub fn upvar_capture(&self, upvar_id: ty::UpvarId) -> ty::UpvarCapture<'tcx> {
-        self.upvar_capture_map[&upvar_id]
-    }
-
     pub fn closure_kind_origins(&self) -> LocalTableInContext<'_, (Span, HirPlace<'tcx>)> {
         LocalTableInContext { hir_owner: self.hir_owner, data: &self.closure_kind_origins }
     }
@@ -696,23 +715,22 @@ impl<'a, 'tcx> HashStable<StableHashingContext<'a>> for TypeckResults<'tcx> {
             ref adjustments,
             ref pat_binding_modes,
             ref pat_adjustments,
-            ref upvar_capture_map,
             ref closure_kind_origins,
             ref liberated_fn_sigs,
             ref fru_field_types,
-
             ref coercion_casts,
-
             ref used_trait_imports,
             tainted_by_errors,
             ref concrete_opaque_types,
-            ref closure_captures,
             ref closure_min_captures,
+            ref closure_fake_reads,
             ref generator_interior_types,
             ref treat_byte_string_as_slice,
         } = *self;
 
         hcx.with_node_id_hashing_mode(NodeIdHashingMode::HashDefPath, |hcx| {
+            hcx.local_def_path_hash(hir_owner);
+
             type_dependent_defs.hash_stable(hcx, hasher);
             field_indices.hash_stable(hcx, hasher);
             user_provided_types.hash_stable(hcx, hasher);
@@ -722,17 +740,6 @@ impl<'a, 'tcx> HashStable<StableHashingContext<'a>> for TypeckResults<'tcx> {
             adjustments.hash_stable(hcx, hasher);
             pat_binding_modes.hash_stable(hcx, hasher);
             pat_adjustments.hash_stable(hcx, hasher);
-            hash_stable_hashmap(hcx, hasher, upvar_capture_map, |up_var_id, hcx| {
-                let ty::UpvarId { var_path, closure_expr_id } = *up_var_id;
-
-                assert_eq!(var_path.hir_id.owner, hir_owner);
-
-                (
-                    hcx.local_def_path_hash(var_path.hir_id.owner),
-                    var_path.hir_id.local_id,
-                    hcx.local_def_path_hash(closure_expr_id),
-                )
-            });
 
             closure_kind_origins.hash_stable(hcx, hasher);
             liberated_fn_sigs.hash_stable(hcx, hasher);
@@ -741,8 +748,8 @@ impl<'a, 'tcx> HashStable<StableHashingContext<'a>> for TypeckResults<'tcx> {
             used_trait_imports.hash_stable(hcx, hasher);
             tainted_by_errors.hash_stable(hcx, hasher);
             concrete_opaque_types.hash_stable(hcx, hasher);
-            closure_captures.hash_stable(hcx, hasher);
             closure_min_captures.hash_stable(hcx, hasher);
+            closure_fake_reads.hash_stable(hcx, hasher);
             generator_interior_types.hash_stable(hcx, hasher);
             treat_byte_string_as_slice.hash_stable(hcx, hasher);
         })
@@ -962,7 +969,14 @@ pub struct GlobalCtxt<'tcx> {
     pub(crate) untracked_crate: &'tcx hir::Crate<'tcx>,
     pub(crate) definitions: &'tcx Definitions,
 
-    pub queries: query::Queries<'tcx>,
+    /// This provides access to the incremental compilation on-disk cache for query results.
+    /// Do not access this directly. It is only meant to be used by
+    /// `DepGraph::try_mark_green()` and the query infrastructure.
+    /// This is `None` if we are not incremental compilation mode
+    pub on_disk_cache: Option<OnDiskCache<'tcx>>,
+
+    pub queries: &'tcx dyn query::QueryEngine<'tcx>,
+    pub query_caches: query::QueryCaches<'tcx>,
 
     maybe_unused_trait_imports: FxHashSet<LocalDefId>,
     maybe_unused_extern_crates: Vec<(LocalDefId, Span)>,
@@ -998,9 +1012,6 @@ pub struct GlobalCtxt<'tcx> {
 
     /// `#[rustc_const_stable]` and `#[rustc_const_unstable]` attributes
     const_stability_interner: ShardedHashMap<&'tcx attr::ConstStability, ()>,
-
-    /// Stores the value of constants (and deduplicates the actual memory)
-    allocation_interner: ShardedHashMap<&'tcx Allocation, ()>,
 
     /// Stores memory for globals (statics/consts).
     pub(crate) alloc_map: Lock<interpret::AllocMap<'tcx>>,
@@ -1044,7 +1055,10 @@ impl<'tcx> TyCtxt<'tcx> {
     }
 
     pub fn intern_const_alloc(self, alloc: Allocation) -> &'tcx Allocation {
-        self.allocation_interner.intern(alloc, |alloc| self.arena.alloc(alloc))
+        self.interners
+            .allocation
+            .intern(alloc, |alloc| Interned(self.interners.arena.alloc(alloc)))
+            .0
     }
 
     /// Allocates a read-only byte or string literal for `mir::interpret`.
@@ -1077,13 +1091,16 @@ impl<'tcx> TyCtxt<'tcx> {
                 None => return Bound::Unbounded,
             };
             debug!("layout_scalar_valid_range: attr={:?}", attr);
-            for meta in attr.meta_item_list().expect("rustc_layout_scalar_valid_range takes args") {
-                match meta.literal().expect("attribute takes lit").kind {
-                    ast::LitKind::Int(a, _) => return Bound::Included(a),
-                    _ => span_bug!(attr.span, "rustc_layout_scalar_valid_range expects int arg"),
-                }
+            if let Some(
+                &[ast::NestedMetaItem::Literal(ast::Lit { kind: ast::LitKind::Int(a, _), .. })],
+            ) = attr.meta_item_list().as_deref()
+            {
+                Bound::Included(a)
+            } else {
+                self.sess
+                    .delay_span_bug(attr.span, "invalid rustc_layout_scalar_valid_range attribute");
+                Bound::Unbounded
             }
-            span_bug!(attr.span, "no arguments to `rustc_layout_scalar_valid_range` attribute");
         };
         (
             get(sym::rustc_layout_scalar_valid_range_start),
@@ -1102,14 +1119,13 @@ impl<'tcx> TyCtxt<'tcx> {
     pub fn create_global_ctxt(
         s: &'tcx Session,
         lint_store: Lrc<dyn Any + sync::Send + sync::Sync>,
-        local_providers: ty::query::Providers,
-        extern_providers: ty::query::Providers,
         arena: &'tcx WorkerLocal<Arena<'tcx>>,
         resolutions: ty::ResolverOutputs,
         krate: &'tcx hir::Crate<'tcx>,
         definitions: &'tcx Definitions,
         dep_graph: DepGraph,
-        on_disk_query_result_cache: Option<query::OnDiskCache<'tcx>>,
+        on_disk_cache: Option<query::OnDiskCache<'tcx>>,
+        queries: &'tcx dyn query::QueryEngine<'tcx>,
         crate_name: &str,
         output_filenames: &OutputFilenames,
     ) -> GlobalCtxt<'tcx> {
@@ -1121,10 +1137,6 @@ impl<'tcx> TyCtxt<'tcx> {
         let common_lifetimes = CommonLifetimes::new(&interners);
         let common_consts = CommonConsts::new(&interners, &common_types);
         let cstore = resolutions.cstore;
-        let crates = cstore.crates_untracked();
-        let max_cnum = crates.iter().map(|c| c.as_usize()).max().unwrap_or(0);
-        let mut providers = IndexVec::from_elem_n(extern_providers, max_cnum + 1);
-        providers[LOCAL_CRATE] = local_providers;
 
         let mut trait_map: FxHashMap<_, FxHashMap<_, _>> = FxHashMap::default();
         for (hir_id, v) in krate.trait_map.iter() {
@@ -1153,7 +1165,9 @@ impl<'tcx> TyCtxt<'tcx> {
             extern_prelude: resolutions.extern_prelude,
             untracked_crate: krate,
             definitions,
-            queries: query::Queries::new(providers, extern_providers, on_disk_query_result_cache),
+            on_disk_cache,
+            queries,
+            query_caches: query::QueryCaches::default(),
             ty_rcache: Default::default(),
             pred_rcache: Default::default(),
             selection_cache: Default::default(),
@@ -1163,7 +1177,6 @@ impl<'tcx> TyCtxt<'tcx> {
             layout_interner: Default::default(),
             stability_interner: Default::default(),
             const_stability_interner: Default::default(),
-            allocation_interner: Default::default(),
             alloc_map: Lock::new(interpret::AllocMap::new()),
             output_filenames: Arc::new(output_filenames.clone()),
         }
@@ -1318,7 +1331,7 @@ impl<'tcx> TyCtxt<'tcx> {
     }
 
     pub fn serialize_query_result_cache(self, encoder: &mut FileEncoder) -> FileEncodeResult {
-        self.queries.on_disk_cache.as_ref().map_or(Ok(()), |c| c.serialize(self, encoder))
+        self.on_disk_cache.as_ref().map_or(Ok(()), |c| c.serialize(self, encoder))
     }
 
     /// If `true`, we should use the MIR-based borrowck, but also
@@ -1599,6 +1612,7 @@ macro_rules! nop_list_lift {
 nop_lift! {type_; Ty<'a> => Ty<'tcx>}
 nop_lift! {region; Region<'a> => Region<'tcx>}
 nop_lift! {const_; &'a Const<'a> => &'tcx Const<'tcx>}
+nop_lift! {allocation; &'a Allocation => &'tcx Allocation}
 nop_lift! {predicate; &'a PredicateInner<'a> => &'tcx PredicateInner<'tcx>}
 
 nop_list_lift! {type_list; Ty<'a> => Ty<'tcx>}
@@ -1889,7 +1903,7 @@ impl<'tcx> TyCtxt<'tcx> {
                     "Const Stability interner: #{}",
                     self.0.const_stability_interner.len()
                 )?;
-                writeln!(fmt, "Allocation interner: #{}", self.0.allocation_interner.len())?;
+                writeln!(fmt, "Allocation interner: #{}", self.0.interners.allocation.len())?;
                 writeln!(fmt, "Layout interner: #{}", self.0.layout_interner.len())?;
 
                 Ok(())
@@ -1987,6 +2001,26 @@ impl<'tcx> Borrow<RegionKind> for Interned<'tcx, RegionKind> {
 impl<'tcx> Borrow<Const<'tcx>> for Interned<'tcx, Const<'tcx>> {
     fn borrow<'a>(&'a self) -> &'a Const<'tcx> {
         &self.0
+    }
+}
+
+impl<'tcx> Borrow<Allocation> for Interned<'tcx, Allocation> {
+    fn borrow<'a>(&'a self) -> &'a Allocation {
+        &self.0
+    }
+}
+
+impl<'tcx> PartialEq for Interned<'tcx, Allocation> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<'tcx> Eq for Interned<'tcx, Allocation> {}
+
+impl<'tcx> Hash for Interned<'tcx, Allocation> {
+    fn hash<H: Hasher>(&self, s: &mut H) {
+        self.0.hash(s)
     }
 }
 

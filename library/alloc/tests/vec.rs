@@ -7,6 +7,7 @@ use std::mem::{size_of, swap};
 use std::ops::Bound::*;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::vec::{Drain, IntoIter};
 
 struct DropCounter<'a> {
@@ -607,6 +608,17 @@ fn test_move_items_zero_sized() {
         vec2.push(i);
     }
     assert_eq!(vec2, [(), (), ()]);
+}
+
+#[test]
+fn test_drain_empty_vec() {
+    let mut vec: Vec<i32> = vec![];
+    let mut vec2: Vec<i32> = vec![];
+    for i in vec.drain(..) {
+        vec2.push(i);
+    }
+    assert!(vec.is_empty());
+    assert!(vec2.is_empty());
 }
 
 #[test]
@@ -1680,6 +1692,10 @@ fn test_stable_pointers() {
     next_then_drop(v.splice(5..6, vec![1; 10].into_iter().filter(|_| true))); // lower bound not exact
     assert_eq!(*v0, 13);
 
+    // spare_capacity_mut
+    v.spare_capacity_mut();
+    assert_eq!(*v0, 13);
+
     // Smoke test that would fire even outside Miri if an actual relocation happened.
     *v0 -= 13;
     assert_eq!(v[0], 0);
@@ -2084,4 +2100,171 @@ fn test_extend_from_within() {
     v.extend_from_within(..=1);
 
     assert_eq!(v, ["a", "b", "c", "b", "c", "a", "b"]);
+}
+
+#[test]
+fn test_vec_dedup_by() {
+    let mut vec: Vec<i32> = vec![1, -1, 2, 3, 1, -5, 5, -2, 2];
+
+    vec.dedup_by(|a, b| a.abs() == b.abs());
+
+    assert_eq!(vec, [1, 2, 3, 1, -5, -2]);
+}
+
+#[test]
+fn test_vec_dedup_empty() {
+    let mut vec: Vec<i32> = Vec::new();
+
+    vec.dedup();
+
+    assert_eq!(vec, []);
+}
+
+#[test]
+fn test_vec_dedup_one() {
+    let mut vec = vec![12i32];
+
+    vec.dedup();
+
+    assert_eq!(vec, [12]);
+}
+
+#[test]
+fn test_vec_dedup_multiple_ident() {
+    let mut vec = vec![12, 12, 12, 12, 12, 11, 11, 11, 11, 11, 11];
+
+    vec.dedup();
+
+    assert_eq!(vec, [12, 11]);
+}
+
+#[test]
+fn test_vec_dedup_partialeq() {
+    #[derive(Debug)]
+    struct Foo(i32, i32);
+
+    impl PartialEq for Foo {
+        fn eq(&self, other: &Foo) -> bool {
+            self.0 == other.0
+        }
+    }
+
+    let mut vec = vec![Foo(0, 1), Foo(0, 5), Foo(1, 7), Foo(1, 9)];
+
+    vec.dedup();
+    assert_eq!(vec, [Foo(0, 1), Foo(1, 7)]);
+}
+
+#[test]
+fn test_vec_dedup() {
+    let mut vec: Vec<bool> = Vec::with_capacity(8);
+    let mut template = vec.clone();
+
+    for x in 0u8..255u8 {
+        vec.clear();
+        template.clear();
+
+        let iter = (0..8).map(move |bit| (x >> bit) & 1 == 1);
+        vec.extend(iter);
+        template.extend_from_slice(&vec);
+
+        let (dedup, _) = template.partition_dedup();
+        vec.dedup();
+
+        assert_eq!(vec, dedup);
+    }
+}
+
+#[test]
+fn test_vec_dedup_panicking() {
+    #[derive(Debug)]
+    struct Panic {
+        drop_counter: &'static AtomicU32,
+        value: bool,
+        index: usize,
+    }
+
+    impl PartialEq for Panic {
+        fn eq(&self, other: &Self) -> bool {
+            self.value == other.value
+        }
+    }
+
+    impl Drop for Panic {
+        fn drop(&mut self) {
+            let x = self.drop_counter.fetch_add(1, Ordering::SeqCst);
+            assert!(x != 4);
+        }
+    }
+
+    static DROP_COUNTER: AtomicU32 = AtomicU32::new(0);
+    let expected = [
+        Panic { drop_counter: &DROP_COUNTER, value: false, index: 0 },
+        Panic { drop_counter: &DROP_COUNTER, value: false, index: 5 },
+        Panic { drop_counter: &DROP_COUNTER, value: true, index: 6 },
+        Panic { drop_counter: &DROP_COUNTER, value: true, index: 7 },
+    ];
+    let mut vec = vec![
+        Panic { drop_counter: &DROP_COUNTER, value: false, index: 0 },
+        // these elements get deduplicated
+        Panic { drop_counter: &DROP_COUNTER, value: false, index: 1 },
+        Panic { drop_counter: &DROP_COUNTER, value: false, index: 2 },
+        Panic { drop_counter: &DROP_COUNTER, value: false, index: 3 },
+        Panic { drop_counter: &DROP_COUNTER, value: false, index: 4 },
+        // here it panics
+        Panic { drop_counter: &DROP_COUNTER, value: false, index: 5 },
+        Panic { drop_counter: &DROP_COUNTER, value: true, index: 6 },
+        Panic { drop_counter: &DROP_COUNTER, value: true, index: 7 },
+    ];
+
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        vec.dedup();
+    }));
+
+    let ok = vec.iter().zip(expected.iter()).all(|(x, y)| x.index == y.index);
+
+    if !ok {
+        panic!("expected: {:?}\ngot: {:?}\n", expected, vec);
+    }
+}
+
+// Regression test for issue #82533
+#[test]
+fn test_extend_from_within_panicing_clone() {
+    struct Panic<'dc> {
+        drop_count: &'dc AtomicU32,
+        aaaaa: bool,
+    }
+
+    impl Clone for Panic<'_> {
+        fn clone(&self) -> Self {
+            if self.aaaaa {
+                panic!("panic! at the clone");
+            }
+
+            Self { ..*self }
+        }
+    }
+
+    impl Drop for Panic<'_> {
+        fn drop(&mut self) {
+            self.drop_count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let count = core::sync::atomic::AtomicU32::new(0);
+    let mut vec = vec![
+        Panic { drop_count: &count, aaaaa: false },
+        Panic { drop_count: &count, aaaaa: true },
+        Panic { drop_count: &count, aaaaa: false },
+    ];
+
+    // This should clone&append one Panic{..} at the end, and then panic while
+    // cloning second Panic{..}. This means that `Panic::drop` should be called
+    // 4 times (3 for items already in vector, 1 for just appended).
+    //
+    // Previously just appended item was leaked, making drop_count = 3, instead of 4.
+    std::panic::catch_unwind(move || vec.extend_from_within(..)).unwrap_err();
+
+    assert_eq!(count.load(Ordering::SeqCst), 4);
 }

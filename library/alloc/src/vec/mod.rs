@@ -126,7 +126,7 @@ use self::spec_extend::SpecExtend;
 
 mod spec_extend;
 
-/// A contiguous growable array type, written `Vec<T>` but pronounced 'vector'.
+/// A contiguous growable array type, written as `Vec<T>` and pronounced 'vector'.
 ///
 /// # Examples
 ///
@@ -215,8 +215,8 @@ mod spec_extend;
 ///
 /// # Slicing
 ///
-/// A `Vec` can be mutable. Slices, on the other hand, are read-only objects.
-/// To get a [slice], use [`&`]. Example:
+/// A `Vec` can be mutable. On the other hand, slices are read-only objects.
+/// To get a [slice][prim@slice], use [`&`]. Example:
 ///
 /// ```
 /// fn read_slice(slice: &[usize]) {
@@ -352,7 +352,7 @@ mod spec_extend;
 /// not break, however: using `unsafe` code to write to the excess capacity,
 /// and then increasing the length to match, is always valid.
 ///
-/// `Vec` does not currently guarantee the order in which elements are dropped.
+/// Currently, `Vec` does not guarantee the order in which elements are dropped.
 /// The order has changed in the past and may change again.
 ///
 /// [`get`]: ../../std/vec/struct.Vec.html#method.get
@@ -369,8 +369,6 @@ mod spec_extend;
 /// [`reserve`]: Vec::reserve
 /// [`MaybeUninit`]: core::mem::MaybeUninit
 /// [owned slice]: Box
-/// [slice]: ../../std/primitive.slice.html
-/// [`&`]: ../../std/primitive.reference.html
 #[stable(feature = "rust1", since = "1.0.0")]
 #[cfg_attr(not(test), rustc_diagnostic_item = "vec_type")]
 pub struct Vec<T, #[unstable(feature = "allocator_api", issue = "32838")] A: Allocator = Global> {
@@ -1385,13 +1383,14 @@ impl<T, A: Allocator> Vec<T, A> {
     /// assert_eq!(vec, [2, 4]);
     /// ```
     ///
-    /// The exact order may be useful for tracking external state, like an index.
+    /// Because the elements are visited exactly once in the original order,
+    /// external state may be used to decide which elements to keep.
     ///
     /// ```
     /// let mut vec = vec![1, 2, 3, 4, 5];
     /// let keep = [false, true, true, false, true];
-    /// let mut i = 0;
-    /// vec.retain(|_| (keep[i], i += 1).0);
+    /// let mut iter = keep.iter();
+    /// vec.retain(|_| *iter.next().unwrap());
     /// assert_eq!(vec, [2, 3, 5]);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -1513,15 +1512,98 @@ impl<T, A: Allocator> Vec<T, A> {
     /// assert_eq!(vec, ["foo", "bar", "baz", "bar"]);
     /// ```
     #[stable(feature = "dedup_by", since = "1.16.0")]
-    pub fn dedup_by<F>(&mut self, same_bucket: F)
+    pub fn dedup_by<F>(&mut self, mut same_bucket: F)
     where
         F: FnMut(&mut T, &mut T) -> bool,
     {
-        let len = {
-            let (dedup, _) = self.as_mut_slice().partition_dedup_by(same_bucket);
-            dedup.len()
-        };
-        self.truncate(len);
+        let len = self.len();
+        if len <= 1 {
+            return;
+        }
+
+        /* INVARIANT: vec.len() > read >= write > write-1 >= 0 */
+        struct FillGapOnDrop<'a, T, A: core::alloc::Allocator> {
+            /* Offset of the element we want to check if it is duplicate */
+            read: usize,
+
+            /* Offset of the place where we want to place the non-duplicate
+             * when we find it. */
+            write: usize,
+
+            /* The Vec that would need correction if `same_bucket` panicked */
+            vec: &'a mut Vec<T, A>,
+        }
+
+        impl<'a, T, A: core::alloc::Allocator> Drop for FillGapOnDrop<'a, T, A> {
+            fn drop(&mut self) {
+                /* This code gets executed when `same_bucket` panics */
+
+                /* SAFETY: invariant guarantees that `read - write`
+                 * and `len - read` never overflow and that the copy is always
+                 * in-bounds. */
+                unsafe {
+                    let ptr = self.vec.as_mut_ptr();
+                    let len = self.vec.len();
+
+                    /* How many items were left when `same_bucket` paniced.
+                     * Basically vec[read..].len() */
+                    let items_left = len.wrapping_sub(self.read);
+
+                    /* Pointer to first item in vec[write..write+items_left] slice */
+                    let dropped_ptr = ptr.add(self.write);
+                    /* Pointer to first item in vec[read..] slice */
+                    let valid_ptr = ptr.add(self.read);
+
+                    /* Copy `vec[read..]` to `vec[write..write+items_left]`.
+                     * The slices can overlap, so `copy_nonoverlapping` cannot be used */
+                    ptr::copy(valid_ptr, dropped_ptr, items_left);
+
+                    /* How many items have been already dropped
+                     * Basically vec[read..write].len() */
+                    let dropped = self.read.wrapping_sub(self.write);
+
+                    self.vec.set_len(len - dropped);
+                }
+            }
+        }
+
+        let mut gap = FillGapOnDrop { read: 1, write: 1, vec: self };
+        let ptr = gap.vec.as_mut_ptr();
+
+        /* Drop items while going through Vec, it should be more efficient than
+         * doing slice partition_dedup + truncate */
+
+        /* SAFETY: Because of the invariant, read_ptr, prev_ptr and write_ptr
+         * are always in-bounds and read_ptr never aliases prev_ptr */
+        unsafe {
+            while gap.read < len {
+                let read_ptr = ptr.add(gap.read);
+                let prev_ptr = ptr.add(gap.write.wrapping_sub(1));
+
+                if same_bucket(&mut *read_ptr, &mut *prev_ptr) {
+                    /* We have found duplicate, drop it in-place */
+                    ptr::drop_in_place(read_ptr);
+                } else {
+                    let write_ptr = ptr.add(gap.write);
+
+                    /* Because `read_ptr` can be equal to `write_ptr`, we either
+                     * have to use `copy` or conditional `copy_nonoverlapping`.
+                     * Looks like the first option is faster. */
+                    ptr::copy(read_ptr, write_ptr, 1);
+
+                    /* We have filled that place, so go further */
+                    gap.write += 1;
+                }
+
+                gap.read += 1;
+            }
+
+            /* Technically we could let `gap` clean up with its Drop, but
+             * when `same_bucket` is guaranteed to not panic, this bloats a little
+             * the codegen, so we just do it manually */
+            gap.vec.set_len(gap.write);
+            mem::forget(gap);
+        }
     }
 
     /// Appends an element to the back of a collection.
@@ -1650,7 +1732,7 @@ impl<T, A: Allocator> Vec<T, A> {
         // the hole, and the vector length is restored to the new length.
         //
         let len = self.len();
-        let Range { start, end } = range.assert_len(len);
+        let Range { start, end } = slice::range(range, ..len);
 
         unsafe {
             // set self.vec length's to start, to be safe in case Drain is leaked
@@ -1878,7 +1960,15 @@ impl<T, A: Allocator> Vec<T, A> {
     #[unstable(feature = "vec_spare_capacity", issue = "75017")]
     #[inline]
     pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
-        self.split_at_spare_mut().1
+        // Note:
+        // This method is not implemented in terms of `split_at_spare_mut`,
+        // to prevent invalidation of pointers to the buffer.
+        unsafe {
+            slice::from_raw_parts_mut(
+                self.as_mut_ptr().add(self.len) as *mut MaybeUninit<T>,
+                self.buf.capacity() - self.len,
+            )
+        }
     }
 
     /// Returns vector content as a slice of `T`, along with the remaining spare
@@ -1935,22 +2025,30 @@ impl<T, A: Allocator> Vec<T, A> {
     #[unstable(feature = "vec_split_at_spare", issue = "81944")]
     #[inline]
     pub fn split_at_spare_mut(&mut self) -> (&mut [T], &mut [MaybeUninit<T>]) {
-        let ptr = self.as_mut_ptr();
+        // SAFETY:
+        // - len is ignored and so never changed
+        let (init, spare, _) = unsafe { self.split_at_spare_mut_with_len() };
+        (init, spare)
+    }
 
-        // Safety:
-        // - `ptr` is guaranteed to be in bounds for `capacity` elements
-        // - `len` is guaranteed to less or equal to `capacity`
-        // - `MaybeUninit<T>` has the same layout as `T`
-        let spare_ptr = unsafe { ptr.cast::<MaybeUninit<T>>().add(self.len) };
+    /// Safety: changing returned .2 (&mut usize) is considered the same as calling `.set_len(_)`.
+    ///
+    /// This method is used to have unique access to all vec parts at once in `extend_from_within`.
+    unsafe fn split_at_spare_mut_with_len(
+        &mut self,
+    ) -> (&mut [T], &mut [MaybeUninit<T>], &mut usize) {
+        let Range { start: ptr, end: spare_ptr } = self.as_mut_ptr_range();
+        let spare_ptr = spare_ptr.cast::<MaybeUninit<T>>();
+        let spare_len = self.buf.capacity() - self.len;
 
-        // Safety:
+        // SAFETY:
         // - `ptr` is guaranteed to be valid for `len` elements
-        // - `spare_ptr` is offseted from `ptr` by `len`, so it doesn't overlap `initialized` slice
+        // - `spare_ptr` is pointing one element past the buffer, so it doesn't overlap with `initialized`
         unsafe {
             let initialized = slice::from_raw_parts_mut(ptr, self.len);
-            let spare = slice::from_raw_parts_mut(spare_ptr, self.buf.capacity() - self.len);
+            let spare = slice::from_raw_parts_mut(spare_ptr, spare_len);
 
-            (initialized, spare)
+            (initialized, spare, &mut self.len)
         }
     }
 }
@@ -2036,11 +2134,11 @@ impl<T: Clone, A: Allocator> Vec<T, A> {
     where
         R: RangeBounds<usize>,
     {
-        let range = src.assert_len(self.len());
+        let range = slice::range(src, ..self.len());
         self.reserve(range.len());
 
         // SAFETY:
-        // - `assert_len` guarantees  that the given range is valid for indexing self
+        // - `slice::range` guarantees  that the given range is valid for indexing self
         unsafe {
             self.spec_extend_from_within(range);
         }
@@ -2153,7 +2251,8 @@ pub fn from_elem_in<T: Clone, A: Allocator>(elem: T, n: usize, alloc: A) -> Vec<
 }
 
 trait ExtendFromWithinSpec {
-    /// Safety:
+    /// # Safety
+    ///
     /// - `src` needs to be valid index
     /// - `self.capacity() - self.len()` must be `>= src.len()`
     unsafe fn spec_extend_from_within(&mut self, src: Range<usize>);
@@ -2161,22 +2260,23 @@ trait ExtendFromWithinSpec {
 
 impl<T: Clone, A: Allocator> ExtendFromWithinSpec for Vec<T, A> {
     default unsafe fn spec_extend_from_within(&mut self, src: Range<usize>) {
-        let initialized = {
-            let (this, spare) = self.split_at_spare_mut();
+        // SAFETY:
+        // - len is increased only after initializing elements
+        let (this, spare, len) = unsafe { self.split_at_spare_mut_with_len() };
 
-            // Safety:
-            // - caller guaratees that src is a valid index
-            let to_clone = unsafe { this.get_unchecked(src) };
+        // SAFETY:
+        // - caller guaratees that src is a valid index
+        let to_clone = unsafe { this.get_unchecked(src) };
 
-            to_clone.iter().cloned().zip(spare.iter_mut()).map(|(e, s)| s.write(e)).count()
-        };
-
-        // Safety:
-        // - elements were just initialized
-        unsafe {
-            let new_len = self.len() + initialized;
-            self.set_len(new_len);
-        }
+        to_clone
+            .iter()
+            .cloned()
+            .zip(spare.iter_mut())
+            .map(|(src, dst)| dst.write(src))
+            // Note:
+            // - Element was just initialized with `MaybeUninit::write`, so it's ok to increace len
+            // - len is increased after each element to prevent leaks (see issue #82533)
+            .for_each(|_| *len += 1);
     }
 }
 
@@ -2186,11 +2286,11 @@ impl<T: Copy, A: Allocator> ExtendFromWithinSpec for Vec<T, A> {
         {
             let (init, spare) = self.split_at_spare_mut();
 
-            // Safety:
+            // SAFETY:
             // - caller guaratees that `src` is a valid index
             let source = unsafe { init.get_unchecked(src) };
 
-            // Safety:
+            // SAFETY:
             // - Both pointers are created from unique slice references (`&mut [_]`)
             //   so they are valid and do not overlap.
             // - Elements are :Copy so it's OK to to copy them, without doing
@@ -2202,7 +2302,7 @@ impl<T: Copy, A: Allocator> ExtendFromWithinSpec for Vec<T, A> {
             unsafe { ptr::copy_nonoverlapping(source.as_ptr(), spare.as_mut_ptr() as _, count) };
         }
 
-        // Safety:
+        // SAFETY:
         // - The elements were just initialized by `copy_nonoverlapping`
         self.len += count;
     }
@@ -2515,7 +2615,7 @@ impl<T, A: Allocator> Vec<T, A> {
 /// This implementation is specialized for slice iterators, where it uses [`copy_from_slice`] to
 /// append the entire slice at once.
 ///
-/// [`copy_from_slice`]: ../../std/primitive.slice.html#method.copy_from_slice
+/// [`copy_from_slice`]: slice::copy_from_slice
 #[stable(feature = "extend_ref", since = "1.2.0")]
 impl<'a, T: Copy + 'a, A: Allocator + 'a> Extend<&'a T> for Vec<T, A> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {

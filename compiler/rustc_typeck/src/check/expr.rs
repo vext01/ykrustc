@@ -711,7 +711,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         });
 
         let ret_ty = ret_coercion.borrow().expected_ty();
-        let return_expr_ty = self.check_expr_with_hint(return_expr, ret_ty.clone());
+        let return_expr_ty = self.check_expr_with_hint(return_expr, ret_ty);
         ret_coercion.borrow_mut().coerce(
             self,
             &self.cause(return_expr.span, ObligationCauseCode::ReturnValue(return_expr.hir_id)),
@@ -1158,7 +1158,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         expr: &hir::Expr<'_>,
         expected: Expectation<'tcx>,
         qpath: &QPath<'_>,
-        fields: &'tcx [hir::Field<'tcx>],
+        fields: &'tcx [hir::ExprField<'tcx>],
         base_expr: &'tcx Option<&'tcx hir::Expr<'tcx>>,
     ) -> Ty<'tcx> {
         // Find the relevant variant
@@ -1231,7 +1231,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         expr_id: hir::HirId,
         span: Span,
         variant: &'tcx ty::VariantDef,
-        ast_fields: &'tcx [hir::Field<'tcx>],
+        ast_fields: &'tcx [hir::ExprField<'tcx>],
         check_completeness: bool,
     ) -> bool {
         let tcx = self.tcx;
@@ -1320,7 +1320,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
 
     fn check_struct_fields_on_error(
         &self,
-        fields: &'tcx [hir::Field<'tcx>],
+        fields: &'tcx [hir::ExprField<'tcx>],
         base_expr: &'tcx Option<&'tcx hir::Expr<'tcx>>,
     ) {
         for field in fields {
@@ -1348,7 +1348,6 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         span: Span,
         remaining_fields: FxHashMap<Ident, (usize, &ty::FieldDef)>,
     ) {
-        let tcx = self.tcx;
         let len = remaining_fields.len();
 
         let mut displayable_field_names =
@@ -1356,25 +1355,29 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
 
         displayable_field_names.sort();
 
-        let truncated_fields_error = if len <= 3 {
-            String::new()
-        } else {
-            format!(" and {} other field{}", (len - 3), if len - 3 == 1 { "" } else { "s" })
+        let mut truncated_fields_error = String::new();
+        let remaining_fields_names = match &displayable_field_names[..] {
+            [field1] => format!("`{}`", field1),
+            [field1, field2] => format!("`{}` and `{}`", field1, field2),
+            [field1, field2, field3] => format!("`{}`, `{}` and `{}`", field1, field2, field3),
+            _ => {
+                truncated_fields_error =
+                    format!(" and {} other field{}", len - 3, pluralize!(len - 3));
+                displayable_field_names
+                    .iter()
+                    .take(3)
+                    .map(|n| format!("`{}`", n))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
         };
 
-        let remaining_fields_names = displayable_field_names
-            .iter()
-            .take(3)
-            .map(|n| format!("`{}`", n))
-            .collect::<Vec<_>>()
-            .join(", ");
-
         struct_span_err!(
-            tcx.sess,
+            self.tcx.sess,
             span,
             E0063,
             "missing field{} {}{} in initializer of `{}`",
-            pluralize!(remaining_fields.len()),
+            pluralize!(len),
             remaining_fields_names,
             truncated_fields_error,
             adt_ty
@@ -1408,8 +1411,8 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         &self,
         ty: Ty<'tcx>,
         variant: &'tcx ty::VariantDef,
-        field: &hir::Field<'_>,
-        skip_fields: &[hir::Field<'_>],
+        field: &hir::ExprField<'_>,
+        skip_fields: &[hir::ExprField<'_>],
         kind_name: &str,
         ty_span: Span,
     ) {
@@ -2081,6 +2084,8 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             }
             _ => {
                 self.tcx.sess.emit_err(YieldExprOutsideOfGenerator { span: expr.span });
+                // Avoid expressions without types during writeback (#78653).
+                self.check_expr(value);
                 self.tcx.mk_unit()
             }
         }

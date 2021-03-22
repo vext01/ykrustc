@@ -65,7 +65,10 @@ mod attr_impl {
             const NoCapture = 1 << 2;
             const NonNull   = 1 << 3;
             const ReadOnly  = 1 << 4;
-            const InReg     = 1 << 8;
+            const InReg     = 1 << 5;
+            // NoAlias on &mut arguments can only be used with LLVM >= 12 due to miscompiles
+            // in earlier versions. FIXME: Remove this distinction once possible.
+            const NoAliasMutRef = 1 << 6;
         }
     }
 }
@@ -603,6 +606,13 @@ impl<'a, Ty> FnAbi<'a, Ty> {
         Ty: TyAndLayoutMethods<'a, C> + Copy,
         C: LayoutOf<Ty = Ty, TyAndLayout = TyAndLayout<'a, Ty>> + HasDataLayout + HasTargetSpec,
     {
+        if abi == spec::abi::Abi::X86Interrupt {
+            if let Some(arg) = self.args.first_mut() {
+                arg.make_indirect_byval();
+            }
+            return Ok(());
+        }
+
         match &cx.target_spec().arch[..] {
             "x86" => {
                 let flavor = if abi == spec::abi::Abi::Fastcall {

@@ -10,9 +10,11 @@ use rustc_macros::HashStable;
 
 mod int;
 mod kind;
+mod valtree;
 
 pub use int::*;
 pub use kind::*;
+pub use valtree::*;
 
 /// Typed constant value.
 #[derive(Copy, Clone, Debug, Hash, TyEncodable, TyDecodable, Eq, PartialEq, Ord, PartialOrd)]
@@ -23,7 +25,7 @@ pub struct Const<'tcx> {
     pub val: ConstKind<'tcx>,
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", target_pointer_width = "64"))]
 static_assert_size!(Const<'_>, 48);
 
 impl<'tcx> Const<'tcx> {
@@ -96,18 +98,18 @@ impl<'tcx> Const<'tcx> {
                 let name = tcx.hir().name(hir_id);
                 ty::ConstKind::Param(ty::ParamConst::new(index, name))
             }
-            _ => ty::ConstKind::Unevaluated(
-                def.to_global(),
-                InternalSubsts::identity_for_item(tcx, def.did.to_def_id()),
-                None,
-            ),
+            _ => ty::ConstKind::Unevaluated(ty::Unevaluated {
+                def: def.to_global(),
+                substs: InternalSubsts::identity_for_item(tcx, def.did.to_def_id()),
+                promoted: None,
+            }),
         };
 
         tcx.mk_const(ty::Const { val, ty })
     }
 
-    #[inline]
     /// Interns the given value as a constant.
+    #[inline]
     pub fn from_value(tcx: TyCtxt<'tcx>, val: ConstValue<'tcx>, ty: Ty<'tcx>) -> &'tcx Self {
         tcx.mk_const(Self { val: ConstKind::Value(val), ty })
     }
