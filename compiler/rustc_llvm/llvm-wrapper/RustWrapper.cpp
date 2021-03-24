@@ -1069,7 +1069,11 @@ extern "C" bool LLVMRustAddYkBlockLabel(LLVMBuilderRef Builder,
     BasicBlock *B = unwrap(Block);
     Function *f = B->getParent();
     DISubprogram *SP = f->getSubprogram();
+#if LLVM_VERSION_GE(12, 0)
+    auto Loc = DILocation::get(SP->getContext(), 0, 0, SP);
+#else
     auto Loc = DebugLoc::get(0, 0, SP);
+#endif
     auto First = B->getFirstNonPHI();
     if (First == nullptr) {
         // There is no instruction to attach a label to, so bail out.

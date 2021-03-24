@@ -369,10 +369,10 @@ impl SirFuncCx<'tcx> {
         match rvalue {
             mir::Rvalue::Use(opnd) => self.lower_operand(bx, bb, opnd),
             mir::Rvalue::Ref(_, _, p) => self.lower_ref(bx, bb, dest_ty, p),
-            mir::Rvalue::BinaryOp(op, opnd1, opnd2) => {
+            mir::Rvalue::BinaryOp(op, box (opnd1, opnd2)) => {
                 self.lower_binop(bx, bb, dest_ty, *op, opnd1, opnd2, false)
             }
-            mir::Rvalue::CheckedBinaryOp(op, opnd1, opnd2) => {
+            mir::Rvalue::CheckedBinaryOp(op, box (opnd1, opnd2)) => {
                 self.lower_binop(bx, bb, dest_ty, *op, opnd1, opnd2, true)
             }
             mir::Rvalue::Cast(mir::CastKind::Misc, op, ty) => self.lower_cast_misc(bx, bb, op, ty),
@@ -591,11 +591,12 @@ impl SirFuncCx<'tcx> {
         bx: &Bx,
         constant: &mir::Constant<'tcx>,
     ) -> ykpack::IRPlace {
-        match constant.literal.val {
-            ty::ConstKind::Value(mir::interpret::ConstValue::Scalar(s)) => {
-                let val = self.lower_scalar(bx, constant.literal.ty, s);
+        let const_ty = constant.literal.ty();
+        match constant.literal.try_to_value() {
+            Some(mir::interpret::ConstValue::Scalar(s)) => {
+                let val = self.lower_scalar(bx, const_ty, s);
                 let ty =
-                    self.lower_ty_and_layout(bx, &self.mono_layout_of(bx, constant.literal.ty));
+                    self.lower_ty_and_layout(bx, &self.mono_layout_of(bx, const_ty));
                 ykpack::IRPlace::Const { val, ty }
             }
             _ => ykpack::IRPlace::Unimplemented(with_no_trimmed_paths(|| {

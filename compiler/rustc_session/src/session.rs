@@ -641,10 +641,11 @@ impl Session {
         self.opts.debugging_opts.binary_dep_depinfo
     }
     pub fn mir_opt_level(&self) -> usize {
+        // FIXME ykrustc deviates from the upstream defaults.
         self.opts
             .debugging_opts
             .mir_opt_level
-            .unwrap_or_else(|| if self.opts.optimize != config::OptLevel::No { 2 } else { 1 })
+            .unwrap_or_else(|| if self.opts.optimize != config::OptLevel::No { 1 } else { 1 })
     }
 
     /// Gets the features enabled for the current compilation session.

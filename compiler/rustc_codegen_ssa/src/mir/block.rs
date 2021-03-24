@@ -550,16 +550,14 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 // TIR compiler recognises at runtime.
                 debug_assert!(args.len() == 1);
                 let mut str_arg = None;
-                if let mir::Operand::Constant(box mir::Constant {
-                    literal: ty::Const { ty: const_ty, val: ty::ConstKind::Value(const_val) },
-                    ..
-                }) = args[0]
-                {
-                    if let ty::Ref(_, rty, _) = const_ty.kind() {
+                if let mir::Operand::Constant(box constant) = args[0] {
+                    if let ty::Ref(_, rty, _) = constant.literal.ty().kind() {
                         if let ty::Str = rty.kind() {
-                            use rustc_middle::mir::interpret::get_slice_bytes;
-                            let bytes = get_slice_bytes(bx.cx(), *const_val);
-                            str_arg = Some(core::str::from_utf8(bytes).unwrap());
+                            if let Some(const_val) = constant.literal.try_to_value() {
+                                use rustc_middle::mir::interpret::get_slice_bytes;
+                                let bytes = get_slice_bytes(bx.cx(), const_val);
+                                str_arg = Some(core::str::from_utf8(bytes).unwrap());
+                            }
                         }
                     }
                 }
